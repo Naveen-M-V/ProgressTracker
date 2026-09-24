@@ -12,8 +12,8 @@ import {
   TaskComment
 } from '../types/task.js';
 import { TaskAttachment } from '../types/attachment.js';
-import { Project } from '../types/project.js';
-import { Team } from '../types/team.js';
+import { Project, ProjectMember } from '../types/project.js';
+import { Team, TeamMember } from '../types/team.js';
 import { User } from '../types/auth.js';
 
 export interface TaskFilterOptions {
@@ -48,7 +48,17 @@ interface TaskContextType {
   setFilters: Dispatch<SetStateAction<TaskFilterOptions>>;
   resetFilters: () => void;
 
-  createProject: (payload: { name: string; description?: string; team_id?: number | null; manager_id?: number | null }) => Promise<Project | null>;
+  createProject: (payload: { name: string; description?: string; team_id?: number | null; manager_id?: number | null; member_ids?: number[] }) => Promise<Project | null>;
+  updateProject: (projectId: number, payload: { name?: string; description?: string; team_id?: number | null; manager_id?: number | null; status?: string }) => Promise<Project | null>;
+  fetchProjectMembers: (projectId: number) => Promise<ProjectMember[]>;
+  addProjectMember: (projectId: number, userId: number, roleInProject?: string) => Promise<ProjectMember | null>;
+  removeProjectMember: (projectId: number, userId: number) => Promise<boolean>;
+  createTeam: (payload: { name: string; description?: string; lead_id?: number | null; member_ids?: number[] }) => Promise<Team | null>;
+  deleteTeam: (teamId: number) => Promise<boolean>;
+  fetchTeamMembers: (teamId: number) => Promise<TeamMember[]>;
+  addTeamMember: (teamId: number, userId: number) => Promise<TeamMember | null>;
+  removeTeamMember: (teamId: number, userId: number) => Promise<boolean>;
+  refreshTeams: () => Promise<void>;
   createTask: (payload: CreateTaskPayload) => Promise<Task | null>;
   updateTask: (taskId: number, payload: UpdateTaskPayload) => Promise<Task | null>;
   updateTaskStatus: (taskId: number, status: TaskStatus, position_order?: number) => Promise<boolean>;
@@ -101,7 +111,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
             const found = data.data.find((p: Project) => p.id === prev.id);
             return found || data.data[0] || null;
           }
-          const defaultProj = data.data.find((p: Project) => p.name.toUpperCase().includes('UPSOW')) || data.data[0];
+          const defaultProj = data.data.find((p: Project) => p.name.toUpperCase().includes('TASKITUP') || p.name.toUpperCase().includes('UPSOW')) || data.data[0];
           return defaultProj || null;
         });
       }
@@ -274,6 +284,20 @@ export function TaskProvider({ children }: { children: ReactNode }) {
           return { ...t, comment_count: (t.comment_count || 0) + 1 };
         })
       );
+    });
+
+    // Handle project membership live changes
+    socket.on('project:member_added', () => {
+      refreshProjects();
+    });
+    socket.on('project:member_removed', () => {
+      refreshProjects();
+    });
+    socket.on('project:assigned_to_you', () => {
+      refreshProjects();
+    });
+    socket.on('project:removed_from_you', () => {
+      refreshProjects();
     });
 
     return () => {
@@ -545,6 +569,7 @@ export function TaskProvider({ children }: { children: ReactNode }) {
     description?: string;
     team_id?: number | null;
     manager_id?: number | null;
+    member_ids?: number[];
   }): Promise<Project | null> => {
     if (!token) return null;
     try {
@@ -566,6 +591,213 @@ export function TaskProvider({ children }: { children: ReactNode }) {
       return newProj;
     } catch (err) {
       console.error('Project creation error', err);
+      throw err;
+    }
+  };
+
+  const updateProject = async (
+    projectId: number,
+    payload: { name?: string; description?: string; team_id?: number | null; manager_id?: number | null; status?: string }
+  ): Promise<Project | null> => {
+    if (!token) return null;
+    try {
+      const res = await fetch(`/api/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to update project');
+      }
+      const updated: Project = data.data;
+      setProjects((prev) => prev.map((p) => (p.id === projectId ? updated : p)));
+      setSelectedProject((prev) => (prev?.id === projectId ? updated : prev));
+      await refreshProjects();
+      return updated;
+    } catch (err) {
+      console.error('Project update error', err);
+      throw err;
+    }
+  };
+
+  const fetchProjectMembers = async (projectId: number): Promise<ProjectMember[]> => {
+    if (!token) return [];
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        return data.data as ProjectMember[];
+      }
+      return [];
+    } catch (err) {
+      console.error('Fetch project members error', err);
+      return [];
+    }
+  };
+
+  const addProjectMember = async (projectId: number, userId: number, roleInProject = 'MEMBER'): Promise<ProjectMember | null> => {
+    if (!token) return null;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ user_id: userId, role_in_project: roleInProject })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to add member to project');
+      }
+      refreshProjects();
+      return data.data as ProjectMember;
+    } catch (err) {
+      console.error('Add project member error', err);
+      throw err;
+    }
+  };
+
+  const removeProjectMember = async (projectId: number, userId: number): Promise<boolean> => {
+    if (!token) return false;
+    try {
+      const res = await fetch(`/api/projects/${projectId}/members/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to remove member from project');
+      }
+      refreshProjects();
+      return true;
+    } catch (err) {
+      console.error('Remove project member error', err);
+      throw err;
+    }
+  };
+
+  const refreshTeams = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch('/api/teams', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setTeams(data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load teams', err);
+    }
+  }, [token]);
+
+  const createTeam = async (payload: {
+    name: string;
+    description?: string;
+    lead_id?: number | null;
+    member_ids?: number[];
+  }): Promise<Team | null> => {
+    if (!token) return null;
+    try {
+      const res = await fetch('/api/teams', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to create team');
+      }
+      await refreshTeams();
+      return data.data as Team;
+    } catch (err) {
+      console.error('Team creation error', err);
+      throw err;
+    }
+  };
+
+  const deleteTeam = async (teamId: number): Promise<boolean> => {
+    if (!token) return false;
+    try {
+      const res = await fetch(`/api/teams/${teamId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to delete team');
+      }
+      await refreshTeams();
+      return true;
+    } catch (err) {
+      console.error('Delete team error', err);
+      throw err;
+    }
+  };
+
+  const fetchTeamMembers = async (teamId: number): Promise<TeamMember[]> => {
+    if (!token) return [];
+    try {
+      const res = await fetch(`/api/teams/${teamId}/members`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        return data.data as TeamMember[];
+      }
+      return [];
+    } catch (err) {
+      console.error('Fetch team members error', err);
+      return [];
+    }
+  };
+
+  const addTeamMember = async (teamId: number, userId: number): Promise<TeamMember | null> => {
+    if (!token) return null;
+    try {
+      const res = await fetch(`/api/teams/${teamId}/members`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({ user_id: userId })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to add member to team');
+      }
+      await refreshTeams();
+      return data.data as TeamMember;
+    } catch (err) {
+      console.error('Add team member error', err);
+      throw err;
+    }
+  };
+
+  const removeTeamMember = async (teamId: number, userId: number): Promise<boolean> => {
+    if (!token) return false;
+    try {
+      const res = await fetch(`/api/teams/${teamId}/members/${userId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error?.message || 'Failed to remove member from team');
+      }
+      await refreshTeams();
+      return true;
+    } catch (err) {
+      console.error('Remove team member error', err);
       throw err;
     }
   };
@@ -643,6 +875,16 @@ export function TaskProvider({ children }: { children: ReactNode }) {
         setFilters,
         resetFilters,
         createProject,
+        updateProject,
+        fetchProjectMembers,
+        addProjectMember,
+        removeProjectMember,
+        createTeam,
+        deleteTeam,
+        fetchTeamMembers,
+        addTeamMember,
+        removeTeamMember,
+        refreshTeams,
         createTask,
         updateTask,
         updateTaskStatus,

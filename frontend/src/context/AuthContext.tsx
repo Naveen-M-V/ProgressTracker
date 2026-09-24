@@ -39,9 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setDemoAccounts([
           { name: 'Admin', email: 'admin@upsow.com', role: 'ADMIN', defaultPasswordHint: 'Admin@123' },
           { name: 'Project Manager', email: 'pm@upsow.com', role: 'PROJECT_MANAGER', defaultPasswordHint: 'Manager@123' },
-          { name: 'Developer', email: 'developer@upsow.com', role: 'TEAM_MEMBER', defaultPasswordHint: 'Developer@123' },
-          { name: 'Operations Head', email: 'operationhead@upsow.com', role: 'TEAM_MEMBER', defaultPasswordHint: 'Operations@123' },
-          { name: 'Designer', email: 'design@upsow.com', role: 'TEAM_MEMBER', defaultPasswordHint: 'Designer@123' }
+          { name: 'Developer', email: 'developer@upsow.com', role: 'TEAM_MEMBER', defaultPasswordHint: 'Developer@123' }
         ]);
       });
   }, []);

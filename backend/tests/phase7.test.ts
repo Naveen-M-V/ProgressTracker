@@ -189,15 +189,28 @@ async function runPhase7Tests() {
     });
     const devToken = devLogin.body.data.token;
 
-    // Create a target task for testing attachments
+    // Create a target project and task for testing attachments
+    const timestamp = Date.now();
+    const createProjRes = await testRequest(
+      'POST',
+      '/api/projects',
+      {
+        name: `Phase 7 Project ${timestamp}`,
+        manager_id: 1,
+        member_ids: [devLogin.body.data.user.id]
+      },
+      adminToken
+    );
+    assert(createProjRes.body.data?.id, 'Target project should be created');
+    const targetProjectId = createProjRes.body.data.id;
+
     const taskRes = await testRequest(
       'POST',
       '/api/tasks',
       {
         title: 'Phase 7 BLOB Attachment Test Task',
-        project_id: 1,
-        team_id: 1,
-        assignee_id: 3,
+        project_id: targetProjectId,
+        assignee_id: devLogin.body.data.user.id,
         priority: 'HIGH',
         status: 'IN_PROGRESS'
       },
@@ -311,12 +324,13 @@ async function runPhase7Tests() {
     // TEST 8: Multi-Tenant Security & RBAC Isolation on Attachments
     // ----------------------------------------------------
     console.log('[Test 8] Security & Isolation (Unauthorized Project Access)...');
+    const secretTeam = db.prepare('INSERT INTO teams (name) VALUES (?)').run(`Secret Team ${Date.now()}`).lastInsertRowid;
     const opProjName = `Secret Ops Project ${Date.now()}`;
-    const opProj = db.prepare('INSERT INTO projects (name, team_id, manager_id, status) VALUES (?, ?, ?, ?)').run(opProjName, 2, 2, 'ACTIVE');
+    const opProj = db.prepare('INSERT INTO projects (name, team_id, manager_id, status) VALUES (?, ?, ?, ?)').run(opProjName, secretTeam, 2, 'ACTIVE');
     const opTaskId = db.prepare('INSERT INTO tasks (title, project_id, team_id, creator_id, priority, status) VALUES (?, ?, ?, ?, ?, ?)').run(
       'Ops Secret Task',
       opProj.lastInsertRowid,
-      2,
+      secretTeam,
       2,
       'HIGH',
       'TODO'

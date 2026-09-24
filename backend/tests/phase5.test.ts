@@ -91,16 +91,23 @@ async function runPhase5Tests() {
     const devToken = devLogin.body.data.token;
     const devUser = devLogin.body.data.user;
 
-    const opsLogin = await testRequest('POST', '/api/auth/login', { email: 'operationhead@upsow.com', password: 'Operations@123' });
-    const opsToken = opsLogin.body.data.token;
-    const opsUser = opsLogin.body.data.user;
-
     const timestamp = Date.now();
 
-    // Flagship UPSOW project
-    const upsowProject = db.prepare("SELECT id FROM projects WHERE name = 'UPSOW'").get() as { id: number };
-    assert.ok(upsowProject, 'UPSOW project must exist');
-    const projectId = upsowProject.id;
+    const opsSignup = await testRequest('POST', '/api/auth/signup', {
+      name: 'Operations Head',
+      email: `ops_${timestamp}@upsow.com`,
+      password: 'Operations@123'
+    });
+    const opsToken = opsSignup.body.data.token;
+    const opsUser = opsSignup.body.data.user;
+
+    // Create target project with pmUser as manager and devUser, opsUser as members
+    const createProjRes = await testRequest('POST', '/api/projects', {
+      name: `Phase 5 Project ${timestamp}`,
+      manager_id: pmUser.id,
+      member_ids: [devUser.id, opsUser.id]
+    }, adminToken);
+    const projectId = createProjRes.body.data.id;
 
     // ----------------------------------------------------
     // Test 1: Task Assignment Notification Generation

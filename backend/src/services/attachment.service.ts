@@ -4,6 +4,7 @@ import { User, UserRole } from '../types/auth.js';
 import { eventDispatcher } from '../events/dispatcher.js';
 import { DomainEventType } from '../events/types.js';
 import { ProjectService } from './project.service.js';
+import { TaskService } from './task.service.js';
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -13,7 +14,7 @@ function formatFileSize(bytes: number): string {
 
 export class AttachmentService {
   /**
-   * Upload an attachment directly into SQLite as BLOB
+   * Upload an attachment directly into PostgreSQL as BYTEA
    */
   static async uploadAttachment(
     entityType: AttachmentEntityType,
@@ -28,32 +29,43 @@ export class AttachmentService {
     // Verify entity existence & metadata
     let projectId: number | null = null;
     if (entityType === 'TASK') {
-      const task = db.prepare('SELECT id, project_id, title FROM tasks WHERE id = ?').get(entityId) as { id: number; project_id: number; title: string } | undefined;
+      const task = await db.queryOne<{ id: number; project_id: number; title: string }>(
+        'SELECT id, project_id, title FROM tasks WHERE id = ?',
+        [entityId]
+      );
       if (!task) {
         throw new Error(`Target task #${entityId} not found`);
       }
       projectId = task.project_id;
     } else if (entityType === 'COMMENT') {
-      const comment = db.prepare('SELECT id, task_id FROM task_comments WHERE id = ?').get(entityId) as { id: number; task_id: number } | undefined;
+      const comment = await db.queryOne<{ id: number; task_id: number }>(
+        'SELECT id, task_id FROM task_comments WHERE id = ?',
+        [entityId]
+      );
       if (!comment) {
         throw new Error(`Target comment #${entityId} not found`);
       }
-      const task = db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(comment.task_id) as { project_id: number } | undefined;
+      const task = await db.queryOne<{ project_id: number }>(
+        'SELECT project_id FROM tasks WHERE id = ?',
+        [comment.task_id]
+      );
       projectId = task ? task.project_id : null;
     }
 
-    const uploader = db.prepare('SELECT id, name, avatar_url FROM users WHERE id = ?').get(uploadedBy) as { id: number; name: string; avatar_url: string | null } | undefined;
+    const uploader = await db.queryOne<{ id: number; name: string; avatar_url: string | null }>(
+      'SELECT id, name, avatar_url FROM users WHERE id = ?',
+      [uploadedBy]
+    );
     const uploaderName = uploader?.name || 'Unknown User';
     const actualFileSize = file.buffer ? file.buffer.length : file.size;
 
-    const insertTx = db.transaction(() => {
-      // 1. Insert BLOB directly into SQLite attachments table
-      const insertStmt = db.prepare(`
+    const attachmentId = await db.withTransaction(async (tx) => {
+      // 1. Insert BYTEA directly into PostgreSQL attachments table
+      const res = await tx.queryOne(`
         INSERT INTO attachments (entity_type, entity_id, file_name, mime_type, file_size, data, uploaded_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-      `);
-
-      const result = insertStmt.run(
+        VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        RETURNING id
+      `, [
         entityType,
         entityId,
         file.originalname,
@@ -61,17 +73,17 @@ export class AttachmentService {
         actualFileSize,
         file.buffer,
         uploadedBy
-      );
+      ]);
 
-      const attachmentId = Number(result.lastInsertRowid);
+      const newAttachmentId = Number(res.id);
 
       // 2. Log activity audit trail for task attachments
       if (entityType === 'TASK' && projectId) {
         const readableSize = formatFileSize(actualFileSize);
-        db.prepare(`
+        await tx.execute(`
           INSERT INTO activity_logs (task_id, project_id, actor_id, action_type, old_value, new_value, description, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        `).run(
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `, [
           entityId,
           projectId,
           uploadedBy,
@@ -79,15 +91,13 @@ export class AttachmentService {
           null,
           file.originalname,
           `${uploaderName} attached "${file.originalname}" (${readableSize})`
-        );
+        ]);
       }
 
-      return attachmentId;
+      return newAttachmentId;
     });
 
-    const attachmentId = insertTx();
-
-    const createdAttachment = this.getAttachmentMetadataById(attachmentId);
+    const createdAttachment = await this.getAttachmentMetadataById(attachmentId);
     if (!createdAttachment) {
       throw new Error('Failed to retrieve newly created attachment');
     }
@@ -108,10 +118,10 @@ export class AttachmentService {
   }
 
   /**
-   * Retrieve full attachment including binary BLOB buffer (for authenticated streaming)
+   * Retrieve full attachment including binary BYTEA buffer (for authenticated streaming)
    */
-  static getAttachmentById(id: number): AttachmentDetail | null {
-    const row = db.prepare(`
+  static async getAttachmentById(id: number): Promise<AttachmentDetail | null> {
+    const row = await db.queryOne(`
       SELECT 
         a.id,
         a.entity_type,
@@ -127,16 +137,16 @@ export class AttachmentService {
       FROM attachments a
       LEFT JOIN users u ON a.uploaded_by = u.id
       WHERE a.id = ?
-    `).get(id) as (AttachmentDetail & { data: Buffer }) | undefined;
+    `, [id]);
 
-    return row || null;
+    return (row as (AttachmentDetail & { data: Buffer })) || null;
   }
 
   /**
-   * Retrieve lightweight attachment metadata without loading heavy BLOB data into memory
+   * Retrieve lightweight attachment metadata without loading heavy data into memory
    */
-  static getAttachmentMetadataById(id: number): AttachmentDTO | null {
-    const row = db.prepare(`
+  static async getAttachmentMetadataById(id: number): Promise<AttachmentDTO | null> {
+    const row = await db.queryOne(`
       SELECT 
         a.id,
         a.entity_type,
@@ -151,16 +161,16 @@ export class AttachmentService {
       FROM attachments a
       LEFT JOIN users u ON a.uploaded_by = u.id
       WHERE a.id = ?
-    `).get(id) as AttachmentDTO | undefined;
+    `, [id]);
 
-    return row || null;
+    return (row as AttachmentDTO) || null;
   }
 
   /**
    * Retrieve all attachments for a specific entity (Task or Comment)
    */
-  static getAttachmentsForEntity(entityType: AttachmentEntityType, entityId: number): AttachmentDTO[] {
-    const rows = db.prepare(`
+  static async getAttachmentsForEntity(entityType: AttachmentEntityType, entityId: number): Promise<AttachmentDTO[]> {
+    const rows = await db.query(`
       SELECT 
         a.id,
         a.entity_type,
@@ -176,9 +186,9 @@ export class AttachmentService {
       LEFT JOIN users u ON a.uploaded_by = u.id
       WHERE a.entity_type = ? AND a.entity_id = ?
       ORDER BY a.created_at DESC
-    `).all(entityType, entityId) as AttachmentDTO[];
+    `, [entityType, entityId]);
 
-    return rows;
+    return rows as AttachmentDTO[];
   }
 
   /**
@@ -189,7 +199,7 @@ export class AttachmentService {
     userId: number,
     userRole: UserRole
   ): Promise<boolean> {
-    const attachment = this.getAttachmentMetadataById(attachmentId);
+    const attachment = await this.getAttachmentMetadataById(attachmentId);
     if (!attachment) {
       throw new Error('Attachment not found');
     }
@@ -206,23 +216,26 @@ export class AttachmentService {
 
     let projectId: number | null = null;
     if (attachment.entity_type === 'TASK') {
-      const task = db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(attachment.entity_id) as { project_id: number } | undefined;
+      const task = await db.queryOne<{ project_id: number }>(
+        'SELECT project_id FROM tasks WHERE id = ?',
+        [attachment.entity_id]
+      );
       projectId = task ? task.project_id : null;
     }
 
-    const actor = db.prepare('SELECT name FROM users WHERE id = ?').get(userId) as { name: string } | undefined;
+    const actor = await db.queryOne<{ name: string }>('SELECT name FROM users WHERE id = ?', [userId]);
     const actorName = actor?.name || 'User';
 
-    const deleteTx = db.transaction(() => {
+    await db.withTransaction(async (tx) => {
       // 1. Delete record from attachments table
-      db.prepare('DELETE FROM attachments WHERE id = ?').run(attachmentId);
+      await tx.execute('DELETE FROM attachments WHERE id = ?', [attachmentId]);
 
       // 2. Audit log entry for task attachment deletion
       if (attachment.entity_type === 'TASK' && projectId) {
-        db.prepare(`
+        await tx.execute(`
           INSERT INTO activity_logs (task_id, project_id, actor_id, action_type, old_value, new_value, description, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-        `).run(
+          VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `, [
           attachment.entity_id,
           projectId,
           userId,
@@ -230,11 +243,9 @@ export class AttachmentService {
           attachment.file_name,
           null,
           `${actorName} deleted attachment "${attachment.file_name}"`
-        );
+        ]);
       }
     });
-
-    deleteTx();
 
     // 3. Dispatch domain event
     await eventDispatcher.dispatch(
@@ -254,24 +265,27 @@ export class AttachmentService {
   /**
    * Verify if a user is authorized to view/stream an attachment based on entity permissions
    */
-  static canUserAccessAttachment(attachmentId: number, user: User): boolean {
+  static async canUserAccessAttachment(attachmentId: number, user: User): Promise<boolean> {
     if (user.role === 'ADMIN') return true;
 
-    const attachment = this.getAttachmentMetadataById(attachmentId);
+    const attachment = await this.getAttachmentMetadataById(attachmentId);
     if (!attachment) return false;
 
     if (attachment.entity_type === 'TASK') {
-      const task = db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(attachment.entity_id) as { project_id: number } | undefined;
+      const task = await db.queryOne('SELECT * FROM tasks WHERE id = ?', [attachment.entity_id]);
       if (!task) return false;
-      return ProjectService.canUserAccessProject(task.project_id, user);
+      return TaskService.canUserAccessTask(task, user);
     }
 
     if (attachment.entity_type === 'COMMENT') {
-      const comment = db.prepare('SELECT task_id FROM task_comments WHERE id = ?').get(attachment.entity_id) as { task_id: number } | undefined;
+      const comment = await db.queryOne<{ task_id: number }>(
+        'SELECT task_id FROM task_comments WHERE id = ?',
+        [attachment.entity_id]
+      );
       if (!comment) return false;
-      const task = db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(comment.task_id) as { project_id: number } | undefined;
+      const task = await db.queryOne('SELECT * FROM tasks WHERE id = ?', [comment.task_id]);
       if (!task) return false;
-      return ProjectService.canUserAccessProject(task.project_id, user);
+      return TaskService.canUserAccessTask(task, user);
     }
 
     return true;

@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsx tests/phase0.test.ts && tsx tests/phase1.test.ts && tsx tests/phase2.test.ts && tsx tests/phase3.test.ts && tsx tests/phase5.test.ts && tsx tests/phase6.test.ts && tsx tests/phase7.test.ts",
+    "test": "tsx tests/phase0.test.ts && tsx tests/phase1.test.ts && tsx tests/phase2.test.ts && tsx tests/phase3.test.ts && tsx tests/phase5.test.ts && tsx tests/phase6.test.ts && tsx tests/phase7.test.ts && tsx tests/admin_features.test.ts && tsx tests/team_features.test.ts",
     "test:phase0": "tsx tests/phase0.test.ts",
     "test:phase1": "tsx tests/phase1.test.ts",
     "test:phase2": "tsx tests/phase2.test.ts",
@@ -15,6 +15,8 @@
     "test:phase5": "tsx tests/phase5.test.ts",
     "test:phase6": "tsx tests/phase6.test.ts",
     "test:phase7": "tsx tests/phase7.test.ts",
+    "test:admin": "tsx tests/admin_features.test.ts",
+    "test:team": "tsx tests/team_features.test.ts",
     "seed": "tsx src/db.ts --seed"
   },
   "dependencies": {
@@ -25,6 +27,7 @@
     "express": "^4.21.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
+    "pg": "^8.23.0",
     "socket.io": "^4.8.1"
   },
   "devDependencies": {
@@ -35,6 +38,7 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.10",
+    "@types/pg": "^8.23.1",
     "socket.io-client": "^4.8.3",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"

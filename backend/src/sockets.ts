@@ -26,7 +26,7 @@ export function initSockets(httpServer: HttpServer): SocketIOServer {
   });
 
   // JWT Authentication middleware for Socket.io
-  io.use((socket: AuthenticatedSocket, next) => {
+  io.use(async (socket: AuthenticatedSocket, next) => {
     const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
 
     if (!token) {
@@ -35,7 +35,7 @@ export function initSockets(httpServer: HttpServer): SocketIOServer {
 
     try {
       const payload = AuthService.verifyToken(token);
-      const user = AuthService.getProfile(payload.userId);
+      const user = await AuthService.getProfile(payload.userId);
       socket.user = user;
       next();
     } catch (err: any) {
@@ -43,7 +43,7 @@ export function initSockets(httpServer: HttpServer): SocketIOServer {
     }
   });
 
-  io.on('connection', (socket: AuthenticatedSocket) => {
+  io.on('connection', async (socket: AuthenticatedSocket) => {
     const user = socket.user;
     if (!user) {
       socket.disconnect();
@@ -55,7 +55,7 @@ export function initSockets(httpServer: HttpServer): SocketIOServer {
 
     // Automatically join rooms for all projects the user is authorized to access
     try {
-      const accessibleProjects = ProjectService.getAllProjects(user);
+      const accessibleProjects = await ProjectService.getAllProjects(user);
       for (const project of accessibleProjects) {
         socket.join(`project:${project.id}`);
       }
@@ -64,9 +64,9 @@ export function initSockets(httpServer: HttpServer): SocketIOServer {
     }
 
     // Allow client to explicitly subscribe to a project room
-    socket.on('join:project', (projectId: number) => {
+    socket.on('join:project', async (projectId: number) => {
       try {
-        if (ProjectService.canUserAccessProject(projectId, user)) {
+        if (await ProjectService.canUserAccessProject(projectId, user)) {
           socket.join(`project:${projectId}`);
         }
       } catch (err) {

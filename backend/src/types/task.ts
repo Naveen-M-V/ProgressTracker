@@ -2,6 +2,7 @@ import { UserRole } from './auth.js';
 
 export type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 export type TaskStatus = 'TODO' | 'IN_PROGRESS' | 'REVIEW' | 'BLOCKED' | 'COMPLETED';
+export type ItemType = 'TASK' | 'EVENT';
 
 export interface Task {
   id: number;
@@ -22,6 +23,7 @@ export interface Task {
   start_date: string | null;
   due_date: string | null;
   position_order: number;
+  item_type: ItemType;
   subtask_count?: number;
   subtasks_completed?: number;
   comment_count?: number;
@@ -93,6 +95,7 @@ export interface CreateTaskDTO {
   start_date?: string | null;
   due_date?: string | null;
   position_order?: number;
+  item_type?: ItemType;
   subtasks?: string[];
 }
 
@@ -106,6 +109,7 @@ export interface UpdateTaskDTO {
   start_date?: string | null;
   due_date?: string | null;
   position_order?: number;
+  item_type?: ItemType;
 }
 
 export interface TaskFilterDTO {
@@ -118,4 +122,5 @@ export interface TaskFilterDTO {
   from_date?: string;
   to_date?: string;
   search?: string;
+  item_type?: ItemType;
 }

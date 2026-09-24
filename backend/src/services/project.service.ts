@@ -12,22 +12,22 @@ export class ProjectService {
   /**
    * Check if a user has permission to view a project
    */
-  public static canUserAccessProject(projectId: number, user: User): boolean {
+  public static async canUserAccessProject(projectId: number, user: User): Promise<boolean> {
     if (this.isAdmin(user)) return true;
 
     // Check if user is manager or explicitly in project_members
-    const isMember = db.prepare(`
+    const isMember = await db.queryOne(`
       SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?
       UNION
       SELECT 1 FROM projects WHERE id = ? AND manager_id = ?
-    `).get(projectId, user.id, projectId, user.id);
+    `, [projectId, user.id, projectId, user.id]);
 
     if (isMember) return true;
 
     // Check if project is assigned to a team the user belongs to
-    const project = db.prepare('SELECT team_id FROM projects WHERE id = ?').get(projectId) as { team_id: number | null };
+    const project = await db.queryOne<{ team_id: number | null }>('SELECT team_id FROM projects WHERE id = ?', [projectId]);
     if (project && project.team_id) {
-      const inTeam = db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?').get(project.team_id, user.id);
+      const inTeam = await db.queryOne('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?', [project.team_id, user.id]);
       if (inTeam) return true;
     }
 
@@ -37,8 +37,8 @@ export class ProjectService {
   /**
    * Calculate real-time project task progress statistics
    */
-  public static calculateProgress(projectId: number): ProjectProgress {
-    const stats = db.prepare(`
+  public static async calculateProgress(projectId: number): Promise<ProjectProgress> {
+    const stats = await db.queryOne<any>(`
       SELECT 
         COUNT(*) as total_tasks,
         SUM(CASE WHEN status = 'COMPLETED' THEN 1 ELSE 0 END) as completed_tasks,
@@ -48,7 +48,7 @@ export class ProjectService {
         SUM(CASE WHEN status = 'BLOCKED' THEN 1 ELSE 0 END) as blocked_tasks
       FROM tasks
       WHERE project_id = ?
-    `).get(projectId) as any;
+    `, [projectId]);
 
     const total = Number(stats?.total_tasks || 0);
     const completed = Number(stats?.completed_tasks || 0);
@@ -68,11 +68,11 @@ export class ProjectService {
   /**
    * Get all projects accessible to the current user
    */
-  public static getAllProjects(currentUser: User): Project[] {
+  public static async getAllProjects(currentUser: User): Promise<Project[]> {
     let rows: any[];
 
     if (this.isAdmin(currentUser)) {
-      rows = db.prepare(`
+      rows = await db.query(`
         SELECT 
           p.id, p.name, p.description, p.team_id, p.manager_id, p.status, p.created_at,
           t.name as team_name,
@@ -82,10 +82,10 @@ export class ProjectService {
         LEFT JOIN teams t ON p.team_id = t.id
         LEFT JOIN users u ON p.manager_id = u.id
         ORDER BY p.name ASC
-      `).all();
+      `);
     } else {
       // Return projects user manages, is a member of, or where user's team is assigned
-      rows = db.prepare(`
+      rows = await db.query(`
         SELECT DISTINCT
           p.id, p.name, p.description, p.team_id, p.manager_id, p.status, p.created_at,
           t.name as team_name,
@@ -98,30 +98,36 @@ export class ProjectService {
            OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
            OR p.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?)
         ORDER BY p.name ASC
-      `).all(currentUser.id, currentUser.id, currentUser.id);
+      `, [currentUser.id, currentUser.id, currentUser.id]);
     }
 
-    return rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      description: r.description,
-      team_id: r.team_id,
-      team_name: r.team_name,
-      manager_id: r.manager_id,
-      manager_name: r.manager_name,
-      manager_email: r.manager_email,
-      status: r.status,
-      member_count: r.member_count,
-      progress: this.calculateProgress(r.id),
-      created_at: r.created_at
-    }));
+    const projects: Project[] = [];
+    for (const r of rows) {
+      const progress = await this.calculateProgress(r.id);
+      projects.push({
+        id: r.id,
+        name: r.name,
+        description: r.description,
+        team_id: r.team_id,
+        team_name: r.team_name,
+        manager_id: r.manager_id,
+        manager_name: r.manager_name,
+        manager_email: r.manager_email,
+        status: r.status,
+        member_count: Number(r.member_count),
+        progress,
+        created_at: r.created_at
+      });
+    }
+
+    return projects;
   }
 
   /**
    * Get single project by ID with authorization check
    */
-  public static getProjectById(projectId: number, currentUser: User): Project {
-    const row = db.prepare(`
+  public static async getProjectById(projectId: number, currentUser: User): Promise<Project> {
+    const row = await db.queryOne(`
       SELECT 
         p.id, p.name, p.description, p.team_id, p.manager_id, p.status, p.created_at,
         t.name as team_name,
@@ -131,7 +137,7 @@ export class ProjectService {
       LEFT JOIN teams t ON p.team_id = t.id
       LEFT JOIN users u ON p.manager_id = u.id
       WHERE p.id = ?
-    `).get(projectId) as any;
+    `, [projectId]);
 
     if (!row) {
       const err = new Error(`Project with ID ${projectId} not found`);
@@ -140,11 +146,14 @@ export class ProjectService {
     }
 
     // RBAC Authorization Check
-    if (!this.canUserAccessProject(projectId, currentUser)) {
+    const hasAccess = await this.canUserAccessProject(projectId, currentUser);
+    if (!hasAccess) {
       const err = new Error('You do not have permission to access this project');
       (err as any).code = 'FORBIDDEN';
       throw err;
     }
+
+    const progress = await this.calculateProgress(row.id);
 
     return {
       id: row.id,
@@ -156,8 +165,8 @@ export class ProjectService {
       manager_name: row.manager_name,
       manager_email: row.manager_email,
       status: row.status,
-      member_count: row.member_count,
-      progress: this.calculateProgress(row.id),
+      member_count: Number(row.member_count),
+      progress,
       created_at: row.created_at
     };
   }
@@ -165,7 +174,7 @@ export class ProjectService {
   /**
    * Create a new project (Admin or Project Manager)
    */
-  public static createProject(dto: CreateProjectDTO, actor: User): Project {
+  public static async createProject(dto: CreateProjectDTO, actor: User): Promise<Project> {
     if (actor.role === 'TEAM_MEMBER') {
       const err = new Error('Team Members are not authorized to create projects');
       (err as any).code = 'FORBIDDEN';
@@ -180,7 +189,7 @@ export class ProjectService {
     }
 
     // Check name uniqueness
-    const existing = db.prepare('SELECT id FROM projects WHERE name = ? COLLATE NOCASE').get(trimmedName);
+    const existing = await db.queryOne('SELECT id FROM projects WHERE LOWER(name) = LOWER(?)', [trimmedName]);
     if (existing) {
       const err = new Error(`Project name '${trimmedName}' is already in use`);
       (err as any).code = 'CONFLICT';
@@ -194,7 +203,7 @@ export class ProjectService {
     }
 
     if (managerId) {
-      const managerExists = db.prepare('SELECT id FROM users WHERE id = ?').get(managerId);
+      const managerExists = await db.queryOne('SELECT id FROM users WHERE id = ?', [managerId]);
       if (!managerExists) {
         const err = new Error(`Manager user with ID ${managerId} does not exist`);
         (err as any).code = 'USER_NOT_FOUND';
@@ -203,7 +212,7 @@ export class ProjectService {
     }
 
     if (dto.team_id) {
-      const teamExists = db.prepare('SELECT id FROM teams WHERE id = ?').get(dto.team_id);
+      const teamExists = await db.queryOne('SELECT id FROM teams WHERE id = ?', [dto.team_id]);
       if (!teamExists) {
         const err = new Error(`Team with ID ${dto.team_id} does not exist`);
         (err as any).code = 'TEAM_NOT_FOUND';
@@ -214,71 +223,81 @@ export class ProjectService {
     const status = dto.status || 'ACTIVE';
 
     // ATOMIC TRANSACTION: Insert project + project_members + default chat channels
-    const createTx = db.transaction(() => {
-      const insertStmt = db.prepare(`
+    const createdProjectId = await db.withTransaction(async (tx) => {
+      const insertResult = await tx.queryOne(`
         INSERT INTO projects (name, description, team_id, manager_id, status)
         VALUES (?, ?, ?, ?, ?)
-      `);
-      const result = insertStmt.run(
+        RETURNING id
+      `, [
         trimmedName,
         dto.description?.trim() || null,
         dto.team_id || null,
         managerId,
         status
-      );
-      const newProjectId = Number(result.lastInsertRowid);
-
-      const insertMemberStmt = db.prepare(`
-        INSERT OR IGNORE INTO project_members (project_id, user_id, role_in_project)
-        VALUES (?, ?, ?)
-      `);
+      ]);
+      const newProjectId = Number(insertResult.id);
 
       // Add manager to members
       if (managerId) {
-        insertMemberStmt.run(newProjectId, managerId, 'MANAGER');
+        await tx.execute(`
+          INSERT INTO project_members (project_id, user_id, role_in_project)
+          VALUES (?, ?, 'MANAGER')
+          ON CONFLICT DO NOTHING
+        `, [newProjectId, managerId]);
       }
 
       // Add additional members
       const memberSet = new Set<number>(dto.member_ids || []);
       for (const mId of memberSet) {
         if (mId !== managerId) {
-          const uExists = db.prepare('SELECT id FROM users WHERE id = ?').get(mId);
+          const uExists = await tx.queryOne('SELECT id FROM users WHERE id = ?', [mId]);
           if (!uExists) {
             throw new Error(`Cannot add non-existent user ${mId} to project`);
           }
-          insertMemberStmt.run(newProjectId, mId, 'MEMBER');
+          await tx.execute(`
+            INSERT INTO project_members (project_id, user_id, role_in_project)
+            VALUES (?, ?, 'MEMBER')
+            ON CONFLICT DO NOTHING
+          `, [newProjectId, mId]);
         }
       }
 
       // Create default project chat channels
-      const insertChannel = db.prepare(`
+      const genCh = await tx.queryOne(`
         INSERT INTO chat_channels (project_id, name, is_direct)
-        VALUES (?, ?, ?)
-      `);
-      const generalChId = insertChannel.run(newProjectId, 'General', 0).lastInsertRowid;
-      const devChId = insertChannel.run(newProjectId, 'Development', 0).lastInsertRowid;
-      const opsChId = insertChannel.run(newProjectId, 'Operations', 0).lastInsertRowid;
+        VALUES (?, 'General', FALSE)
+        RETURNING id
+      `, [newProjectId]);
+      const devCh = await tx.queryOne(`
+        INSERT INTO chat_channels (project_id, name, is_direct)
+        VALUES (?, 'Development', FALSE)
+        RETURNING id
+      `, [newProjectId]);
+      const opsCh = await tx.queryOne(`
+        INSERT INTO chat_channels (project_id, name, is_direct)
+        VALUES (?, 'Operations', FALSE)
+        RETURNING id
+      `, [newProjectId]);
+
+      const generalChId = Number(genCh.id);
+      const devChId = Number(devCh.id);
+      const opsChId = Number(opsCh.id);
 
       // Add members to default channels
       const allMembers = Array.from(new Set([actor.id, ...(managerId ? [managerId] : []), ...Array.from(memberSet)]));
-      const addChMember = db.prepare(`
-        INSERT OR IGNORE INTO chat_channel_members (channel_id, user_id)
-        VALUES (?, ?)
-      `);
       for (const uId of allMembers) {
-        addChMember.run(generalChId, uId);
-        addChMember.run(devChId, uId);
-        addChMember.run(opsChId, uId);
+        await tx.execute(`INSERT INTO chat_channel_members (channel_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, [generalChId, uId]);
+        await tx.execute(`INSERT INTO chat_channel_members (channel_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, [devChId, uId]);
+        await tx.execute(`INSERT INTO chat_channel_members (channel_id, user_id) VALUES (?, ?) ON CONFLICT DO NOTHING`, [opsChId, uId]);
       }
 
       return newProjectId;
     });
 
-    const createdProjectId = createTx();
-    const createdProject = this.getProjectById(createdProjectId, actor);
+    const createdProject = await this.getProjectById(createdProjectId, actor);
 
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.PROJECT_CREATED, actor.id, createdProject);
+    await eventDispatcher.dispatch(DomainEventType.PROJECT_CREATED, actor.id, createdProject);
 
     return createdProject;
   }
@@ -286,8 +305,8 @@ export class ProjectService {
   /**
    * Update project details (Admin or assigned Project Manager)
    */
-  public static updateProject(projectId: number, dto: UpdateProjectDTO, actor: User): Project {
-    const project = this.getProjectById(projectId, actor);
+  public static async updateProject(projectId: number, dto: UpdateProjectDTO, actor: User): Promise<Project> {
+    const project = await this.getProjectById(projectId, actor);
 
     const isManager = project.manager_id === actor.id;
     if (!this.isAdmin(actor) && !isManager) {
@@ -305,7 +324,7 @@ export class ProjectService {
 
     // Name uniqueness check if renamed
     if (trimmedName.toLowerCase() !== project.name.toLowerCase()) {
-      const duplicate = db.prepare('SELECT id FROM projects WHERE name = ? COLLATE NOCASE AND id != ?').get(trimmedName, projectId);
+      const duplicate = await db.queryOne('SELECT id FROM projects WHERE LOWER(name) = LOWER(?) AND id != ?', [trimmedName, projectId]);
       if (duplicate) {
         const err = new Error(`Project name '${trimmedName}' is already taken`);
         (err as any).code = 'CONFLICT';
@@ -316,7 +335,7 @@ export class ProjectService {
     let newTeamId = project.team_id;
     if (dto.team_id !== undefined) {
       if (dto.team_id !== null) {
-        const teamExists = db.prepare('SELECT id FROM teams WHERE id = ?').get(dto.team_id);
+        const teamExists = await db.queryOne('SELECT id FROM teams WHERE id = ?', [dto.team_id]);
         if (!teamExists) {
           const err = new Error(`Team ${dto.team_id} does not exist`);
           (err as any).code = 'TEAM_NOT_FOUND';
@@ -335,7 +354,7 @@ export class ProjectService {
         throw err;
       }
       if (dto.manager_id !== null) {
-        const managerExists = db.prepare('SELECT id FROM users WHERE id = ?').get(dto.manager_id);
+        const managerExists = await db.queryOne('SELECT id FROM users WHERE id = ?', [dto.manager_id]);
         if (!managerExists) {
           const err = new Error(`Manager ${dto.manager_id} does not exist`);
           (err as any).code = 'USER_NOT_FOUND';
@@ -347,34 +366,34 @@ export class ProjectService {
 
     const newStatus = dto.status || project.status;
 
-    const updateTx = db.transaction(() => {
-      db.prepare(`
+    await db.withTransaction(async (tx) => {
+      await tx.execute(`
         UPDATE projects
         SET name = ?, description = ?, team_id = ?, manager_id = ?, status = ?
         WHERE id = ?
-      `).run(
+      `, [
         trimmedName,
         dto.description !== undefined ? dto.description?.trim() || null : project.description,
         newTeamId,
         newManagerId,
         newStatus,
         projectId
-      );
+      ]);
 
       // If manager updated, add them to project_members
       if (newManagerId) {
-        db.prepare(`
-          INSERT OR IGNORE INTO project_members (project_id, user_id, role_in_project)
+        await tx.execute(`
+          INSERT INTO project_members (project_id, user_id, role_in_project)
           VALUES (?, ?, 'MANAGER')
-        `).run(projectId, newManagerId);
+          ON CONFLICT DO NOTHING
+        `, [projectId, newManagerId]);
       }
     });
 
-    updateTx();
-    const updated = this.getProjectById(projectId, actor);
+    const updated = await this.getProjectById(projectId, actor);
 
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.PROJECT_UPDATED, actor.id, updated);
+    await eventDispatcher.dispatch(DomainEventType.PROJECT_UPDATED, actor.id, updated);
 
     return updated;
   }
@@ -382,32 +401,30 @@ export class ProjectService {
   /**
    * Delete a project (Admin only)
    */
-  public static deleteProject(projectId: number, actor: User): void {
+  public static async deleteProject(projectId: number, actor: User): Promise<void> {
     if (!this.isAdmin(actor)) {
       const err = new Error('Only administrators can delete projects');
       (err as any).code = 'FORBIDDEN';
       throw err;
     }
 
-    const project = this.getProjectById(projectId, actor);
+    const project = await this.getProjectById(projectId, actor);
 
-    const deleteTx = db.transaction(() => {
-      db.prepare('DELETE FROM projects WHERE id = ?').run(projectId);
+    await db.withTransaction(async (tx) => {
+      await tx.execute('DELETE FROM projects WHERE id = ?', [projectId]);
     });
 
-    deleteTx();
-
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.PROJECT_DELETED, actor.id, { id: projectId, name: project.name });
+    await eventDispatcher.dispatch(DomainEventType.PROJECT_DELETED, actor.id, { id: projectId, name: project.name });
   }
 
   /**
    * Get members of a project
    */
-  public static getProjectMembers(projectId: number, currentUser: User): ProjectMember[] {
-    this.getProjectById(projectId, currentUser); // Check access
+  public static async getProjectMembers(projectId: number, currentUser: User): Promise<ProjectMember[]> {
+    await this.getProjectById(projectId, currentUser); // Check access
 
-    const rows = db.prepare(`
+    const rows = await db.query(`
       SELECT 
         pm.project_id, pm.user_id, pm.role_in_project,
         u.name, u.email, u.role, u.avatar_url
@@ -415,7 +432,7 @@ export class ProjectService {
       JOIN users u ON pm.user_id = u.id
       WHERE pm.project_id = ?
       ORDER BY u.name ASC
-    `).all(projectId) as any[];
+    `, [projectId]);
 
     return rows;
   }
@@ -423,13 +440,13 @@ export class ProjectService {
   /**
    * Add a member to a project (Admin or Project Manager)
    */
-  public static addMember(
+  public static async addMember(
     projectId: number,
     userId: number,
     roleInProject = 'MEMBER',
     actor: User
-  ): ProjectMember {
-    const project = this.getProjectById(projectId, actor);
+  ): Promise<ProjectMember> {
+    const project = await this.getProjectById(projectId, actor);
 
     const isManager = project.manager_id === actor.id;
     if (!this.isAdmin(actor) && !isManager) {
@@ -438,38 +455,36 @@ export class ProjectService {
       throw err;
     }
 
-    const user = db.prepare('SELECT id, name, email, role, avatar_url FROM users WHERE id = ?').get(userId) as any;
+    const user = await db.queryOne('SELECT id, name, email, role, avatar_url FROM users WHERE id = ?', [userId]);
     if (!user) {
       const err = new Error(`User with ID ${userId} not found`);
       (err as any).code = 'USER_NOT_FOUND';
       throw err;
     }
 
-    const existing = db.prepare('SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?').get(projectId, userId);
+    const existing = await db.queryOne('SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?', [projectId, userId]);
     if (existing) {
       const err = new Error('User is already a member of this project');
       (err as any).code = 'CONFLICT';
       throw err;
     }
 
-    const addTx = db.transaction(() => {
-      db.prepare(`
+    await db.withTransaction(async (tx) => {
+      await tx.execute(`
         INSERT INTO project_members (project_id, user_id, role_in_project)
         VALUES (?, ?, ?)
-      `).run(projectId, userId, roleInProject);
+      `, [projectId, userId, roleInProject]);
 
       // Auto-join project chat channels
-      const channels = db.prepare('SELECT id FROM chat_channels WHERE project_id = ?').all(projectId) as { id: number }[];
-      const addChMember = db.prepare(`
-        INSERT OR IGNORE INTO chat_channel_members (channel_id, user_id)
-        VALUES (?, ?)
-      `);
+      const channels = await tx.query<{ id: number }>('SELECT id FROM chat_channels WHERE project_id = ?', [projectId]);
       for (const ch of channels) {
-        addChMember.run(ch.id, userId);
+        await tx.execute(`
+          INSERT INTO chat_channel_members (channel_id, user_id)
+          VALUES (?, ?)
+          ON CONFLICT DO NOTHING
+        `, [ch.id, userId]);
       }
     });
-
-    addTx();
 
     const newMember: ProjectMember = {
       project_id: projectId,
@@ -482,7 +497,7 @@ export class ProjectService {
     };
 
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.PROJECT_MEMBER_ADDED, actor.id, newMember);
+    await eventDispatcher.dispatch(DomainEventType.PROJECT_MEMBER_ADDED, actor.id, newMember);
 
     return newMember;
   }
@@ -490,8 +505,8 @@ export class ProjectService {
   /**
    * Remove a member from a project (Admin or Project Manager)
    */
-  public static removeMember(projectId: number, userId: number, actor: User): void {
-    const project = this.getProjectById(projectId, actor);
+  public static async removeMember(projectId: number, userId: number, actor: User): Promise<void> {
+    const project = await this.getProjectById(projectId, actor);
 
     const isManager = project.manager_id === actor.id;
     if (!this.isAdmin(actor) && !isManager) {
@@ -506,20 +521,18 @@ export class ProjectService {
       throw err;
     }
 
-    const existing = db.prepare('SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?').get(projectId, userId);
+    const existing = await db.queryOne('SELECT 1 FROM project_members WHERE project_id = ? AND user_id = ?', [projectId, userId]);
     if (!existing) {
       const err = new Error('User is not a member of this project');
       (err as any).code = 'NOT_FOUND';
       throw err;
     }
 
-    const removeTx = db.transaction(() => {
-      db.prepare('DELETE FROM project_members WHERE project_id = ? AND user_id = ?').run(projectId, userId);
+    await db.withTransaction(async (tx) => {
+      await tx.execute('DELETE FROM project_members WHERE project_id = ? AND user_id = ?', [projectId, userId]);
     });
 
-    removeTx();
-
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.PROJECT_MEMBER_REMOVED, actor.id, { projectId, userId });
+    await eventDispatcher.dispatch(DomainEventType.PROJECT_MEMBER_REMOVED, actor.id, { projectId, userId });
   }
 }

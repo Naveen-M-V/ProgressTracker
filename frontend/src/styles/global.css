@@ -119,10 +119,19 @@ button {
 }
 
 .badge-todo { background: rgba(100, 116, 139, 0.2); color: #cbd5e1; border: 1px solid rgba(100, 116, 139, 0.4); }
-.badge-in-progress { background: rgba(59, 130, 246, 0.2); color: #93c5fd; border: 1px solid rgba(59, 130, 246, 0.4); }
-.badge-review { background: rgba(245, 158, 11, 0.2); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.4); }
-.badge-blocked { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.4); }
-.badge-completed { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.4); }
+.badge-in-progress { background: rgba(37, 99, 235, 0.22); color: #93c5fd; border: 1px solid rgba(37, 99, 235, 0.45); }
+.badge-review { background: rgba(245, 158, 11, 0.22); color: #fcd34d; border: 1px solid rgba(245, 158, 11, 0.45); }
+.badge-blocked { background: rgba(239, 68, 68, 0.22); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.45); }
+.badge-completed { background: rgba(16, 185, 129, 0.22); color: #6ee7b7; border: 1px solid rgba(16, 185, 129, 0.45); }
+.badge-feature { background: rgba(139, 92, 246, 0.22); color: #c4b5fd; border: 1px solid rgba(139, 92, 246, 0.45); }
+
+/* TaskItUp Brand Tri-Color Accent Pill (Green - Amber - Purple) */
+.brand-accent-line {
+  height: 3px;
+  width: 100%;
+  background: var(--brand-gradient-accent);
+  border-radius: var(--radius-full);
+}
 
 /* Custom scrollbars */
 ::-webkit-scrollbar {

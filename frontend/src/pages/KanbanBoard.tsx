@@ -5,7 +5,9 @@ import {
   RotateCcw,
   Wifi,
   WifiOff,
-  FolderKanban
+  FolderKanban,
+  Users,
+  FolderLock
 } from 'lucide-react';
 import { useTasks, TaskFilterOptions } from '../context/TaskContext.js';
 import { useAuth } from '../context/AuthContext.js';
@@ -13,6 +15,7 @@ import { TaskStatus, TaskPriority, Task } from '../types/task.js';
 import { KanbanColumn } from '../components/tasks/KanbanColumn.js';
 import { TaskCreateModal } from '../components/tasks/TaskCreateModal.js';
 import { TaskDetailModal } from '../components/tasks/TaskDetailModal.js';
+import { ProjectMembersModal } from '../components/projects/ProjectMembersModal.js';
 
 export function KanbanBoard() {
   const { user } = useAuth();
@@ -28,10 +31,12 @@ export function KanbanBoard() {
     setSelectedTaskId,
     isCreateModalOpen,
     setIsCreateModalOpen,
+    setIsProjectCreateModalOpen,
     socketConnected
   } = useTasks();
 
   const [createInitialStatus, setCreateInitialStatus] = useState<TaskStatus>('TODO');
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
 
   const handleOpenCreate = (initialStatus: TaskStatus = 'TODO') => {
     setCreateInitialStatus(initialStatus);
@@ -58,6 +63,54 @@ export function KanbanBoard() {
   const hasActiveFilters = Boolean(
     filters.search || filters.priority || filters.assignee_id
   );
+
+  if (!selectedProject) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          padding: '48px 32px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          gap: '16px'
+        }}
+      >
+        <div
+          style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            backgroundColor: 'rgba(99, 102, 241, 0.15)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--brand-secondary)'
+          }}
+        >
+          <FolderLock size={32} />
+        </div>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
+          No Project Board Available
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', maxWidth: '480px', fontSize: '0.95rem', margin: 0 }}>
+          You are not assigned to any active project team. Only projects you lead or belong to are visible in your Kanban board.
+        </p>
+        {(user?.role === 'ADMIN' || user?.role === 'PROJECT_MANAGER') && (
+          <button
+            onClick={() => setIsProjectCreateModalOpen(true)}
+            className="btn-primary"
+            style={{ marginTop: '8px', padding: '10px 20px' }}
+          >
+            <Plus size={16} /> Create New Project
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, height: '100%' }}>
@@ -208,6 +261,17 @@ export function KanbanBoard() {
             </button>
           )}
 
+          {/* Members Button */}
+          <button
+            onClick={() => setIsMembersModalOpen(true)}
+            className="btn-secondary"
+            style={{ padding: '7px 12px', fontSize: '0.825rem' }}
+            title="View and manage project members"
+          >
+            <Users size={14} />
+            <span>Members ({selectedProject.member_count ?? 1})</span>
+          </button>
+
           {/* New Task Button */}
           <button
             onClick={() => handleOpenCreate('TODO')}
@@ -292,6 +356,11 @@ export function KanbanBoard() {
       <TaskDetailModal
         taskId={selectedTaskId}
         onClose={() => setSelectedTaskId(null)}
+      />
+
+      <ProjectMembersModal
+        isOpen={isMembersModalOpen}
+        onClose={() => setIsMembersModalOpen(false)}
       />
     </div>
   );

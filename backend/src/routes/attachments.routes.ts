@@ -9,7 +9,7 @@ const router = Router();
 
 /**
  * POST /api/attachments/upload
- * Upload a file attachment stored as BLOB in SQLite
+ * Upload a file attachment stored as BYTEA in PostgreSQL
  */
 router.post(
   '/upload',
@@ -57,20 +57,20 @@ router.post(
  * GET /api/attachments/:id
  * Authenticated streaming endpoint for inline viewing or downloading
  */
-router.get('/:id', authenticateToken, (req: Request, res: Response) => {
+router.get('/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const attachmentId = Number(req.params.id);
     if (isNaN(attachmentId)) {
       return sendError(res, 'INVALID_ID', 'Invalid attachment ID', 400);
     }
 
-    const attachment = AttachmentService.getAttachmentById(attachmentId);
+    const attachment = await AttachmentService.getAttachmentById(attachmentId);
     if (!attachment) {
       return sendError(res, 'ATTACHMENT_NOT_FOUND', 'Attachment not found', 404);
     }
 
     // Verify entity authorization
-    const hasAccess = AttachmentService.canUserAccessAttachment(
+    const hasAccess = await AttachmentService.canUserAccessAttachment(
       attachmentId,
       req.user!
     );
@@ -100,7 +100,7 @@ router.get('/:id', authenticateToken, (req: Request, res: Response) => {
  * GET /api/attachments/entity/:type/:id
  * Retrieve attachment metadata list for a task or comment
  */
-router.get('/entity/:type/:id', authenticateToken, (req: Request, res: Response) => {
+router.get('/entity/:type/:id', authenticateToken, async (req: Request, res: Response) => {
   try {
     const rawType = Array.isArray(req.params.type) ? req.params.type[0] : req.params.type;
     const entityType = String(rawType || '').toUpperCase() as AttachmentEntityType;
@@ -110,7 +110,7 @@ router.get('/entity/:type/:id', authenticateToken, (req: Request, res: Response)
       return sendError(res, 'INVALID_PARAMS', 'Invalid entity type or ID', 400);
     }
 
-    const attachments = AttachmentService.getAttachmentsForEntity(entityType, entityId);
+    const attachments = await AttachmentService.getAttachmentsForEntity(entityType, entityId);
     return sendSuccess(res, attachments);
   } catch (err: any) {
     return sendError(res, 'FETCH_FAILED', err.message || 'Failed to fetch attachments', 500);

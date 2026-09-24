@@ -24,6 +24,16 @@ export function TaskCard({ task, onClick, onDragStart }: TaskCardProps) {
 
     const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
+    if (task.item_type === 'EVENT') {
+      if (diffDays === 0) return { text: 'Event Today', isToday: true };
+      if (diffDays === 1) return { text: 'Event Tomorrow', isUpcoming: true };
+      return {
+        text: due.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        isUpcoming: diffDays > 0,
+        isOverdue: diffDays < 0
+      };
+    }
+
     if (diffDays < 0) {
       return { text: `${Math.abs(diffDays)}d overdue`, isOverdue: true };
     } else if (diffDays === 0) {
@@ -57,6 +67,8 @@ export function TaskCard({ task, onClick, onDragStart }: TaskCardProps) {
         backgroundColor: isHovered ? 'var(--bg-card-hover)' : 'var(--bg-card)',
         border: isHovered
           ? '1px solid var(--border-focus)'
+          : task.item_type === 'EVENT'
+          ? '1px solid rgba(168, 85, 247, 0.35)'
           : '1px solid var(--border-subtle)',
         borderRadius: 'var(--radius-md)',
         padding: '14px',
@@ -75,7 +87,29 @@ export function TaskCard({ task, onClick, onDragStart }: TaskCardProps) {
     >
       {/* Top Meta Bar */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-        <PriorityBadge priority={task.priority} size="sm" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {task.item_type === 'EVENT' && (
+            <span
+              style={{
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                padding: '2px 6px',
+                borderRadius: '999px',
+                backgroundColor: 'rgba(168, 85, 247, 0.25)',
+                color: '#d8b4fe',
+                border: '1px solid rgba(168, 85, 247, 0.4)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '3px'
+              }}
+            >
+              <Calendar size={10} /> Event
+            </span>
+          )}
+          <PriorityBadge priority={task.priority} size="sm" />
+        </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
           {/* Subtasks Count */}

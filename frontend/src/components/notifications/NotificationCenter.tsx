@@ -118,7 +118,7 @@ export function NotificationCenter({ onOpenTask }: NotificationCenterProps) {
         title="Notifications"
         style={{
           position: 'relative',
-          background: isOpen ? 'rgba(79, 70, 229, 0.2)' : 'var(--bg-tertiary)',
+          background: isOpen ? 'rgba(37, 99, 235, 0.2)' : 'var(--bg-tertiary)',
           border: isOpen ? '1px solid var(--brand-secondary)' : '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius-md)',
           padding: '8px 10px',
@@ -211,9 +211,9 @@ export function NotificationCenter({ onOpenTask }: NotificationCenterProps) {
               {unreadCount > 0 && (
                 <span
                   style={{
-                    backgroundColor: 'rgba(79, 70, 229, 0.25)',
-                    color: '#818cf8',
-                    border: '1px solid rgba(79, 70, 229, 0.4)',
+                    backgroundColor: 'rgba(37, 99, 235, 0.25)',
+                    color: '#93c5fd',
+                    border: '1px solid rgba(37, 99, 235, 0.4)',
                     padding: '2px 8px',
                     borderRadius: 'var(--radius-full)',
                     fontSize: '0.75rem',
@@ -394,7 +394,7 @@ export function NotificationCenter({ onOpenTask }: NotificationCenterProps) {
                     display: 'flex',
                     alignItems: 'flex-start',
                     gap: '12px',
-                    backgroundColor: !n.is_read ? 'rgba(79, 70, 229, 0.08)' : 'transparent',
+                    backgroundColor: !n.is_read ? 'rgba(37, 99, 235, 0.08)' : 'transparent',
                     borderBottom: '1px solid rgba(255, 255, 255, 0.04)',
                     cursor: 'pointer',
                     transition: 'background var(--transition-fast)',
@@ -403,7 +403,7 @@ export function NotificationCenter({ onOpenTask }: NotificationCenterProps) {
                   onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'rgba(255, 255, 255, 0.04)')}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = !n.is_read
-                      ? 'rgba(79, 70, 229, 0.08)'
+                      ? 'rgba(37, 99, 235, 0.08)'
                       : 'transparent';
                   }}
                 >

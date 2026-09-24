@@ -15,7 +15,7 @@ declare global {
 /**
  * Middleware: Verify JWT Bearer token and attach active user to req.user
  */
-export function authenticateToken(req: Request, res: Response, next: NextFunction): void {
+export async function authenticateToken(req: Request, res: Response, next: NextFunction): Promise<void> {
   let token: string | undefined;
 
   const authHeader = req.headers.authorization;
@@ -32,7 +32,7 @@ export function authenticateToken(req: Request, res: Response, next: NextFunctio
 
   try {
     const payload = AuthService.verifyToken(token);
-    const user = AuthService.getProfile(payload.userId);
+    const user = await AuthService.getProfile(payload.userId);
     req.user = user;
     next();
   } catch (error: any) {

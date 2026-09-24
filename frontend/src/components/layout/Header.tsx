@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { FolderKanban, LogOut, ChevronDown, UserCheck } from 'lucide-react';
+import { LogOut, ChevronDown, UserCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.js';
 import { RoleBadge } from '../common/RoleBadge.js';
 import { NotificationCenter } from '../notifications/NotificationCenter.js';
+import { TaskItUpLogo } from '../common/TaskItUpLogo.js';
 
 interface HeaderProps {
   onOpenTask?: (taskId: number) => void;
@@ -36,30 +37,7 @@ export function Header({ onOpenTask }: HeaderProps) {
       }}
     >
       {/* Brand */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div
-          style={{
-            width: '36px',
-            height: '36px',
-            borderRadius: 'var(--radius-md)',
-            background: 'var(--brand-gradient)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: 'var(--shadow-glow)',
-          }}
-        >
-          <FolderKanban size={20} color="#ffffff" />
-        </div>
-        <div>
-          <h1 style={{ fontSize: '1.15rem', fontWeight: 800, letterSpacing: '-0.02em', margin: 0 }}>
-            UPSOW <span style={{ color: 'var(--brand-secondary)', fontWeight: 500 }}>Progress Tracker</span>
-          </h1>
-          <p style={{ fontSize: '0.725rem', color: 'var(--text-muted)', margin: 0 }}>
-            Internal Team Workspace & Collaboration
-          </p>
-        </div>
-      </div>
+      <TaskItUpLogo variant="horizontal" size={38} />
 
       {/* User Info & Role Switcher */}
       {user && (

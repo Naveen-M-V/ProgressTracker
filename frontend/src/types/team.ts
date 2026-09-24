@@ -8,6 +8,7 @@ export interface Team {
   lead_name?: string | null;
   lead_email?: string | null;
   member_count?: number;
+  is_member?: boolean;
   created_at: string;
 }
 

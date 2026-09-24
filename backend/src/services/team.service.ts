@@ -15,28 +15,45 @@ export class TeamService {
   /**
    * Helper: Check if user is a member or lead of the team
    */
-  public static isUserInTeam(teamId: number, userId: number): boolean {
-    const row = db.prepare(`
+  public static async isUserInTeam(teamId: number, userId: number): Promise<boolean> {
+    const row = await db.queryOne(`
       SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?
       UNION
       SELECT 1 FROM teams WHERE id = ? AND lead_id = ?
-    `).get(teamId, userId, teamId, userId);
+    `, [teamId, userId, teamId, userId]);
     return !!row;
   }
 
   /**
-   * List all teams (enriched with lead name and member count)
+   * Helper: Get all team IDs a user belongs to (as member or lead)
    */
-  public static getAllTeams(currentUser: User): Team[] {
-    const rows = db.prepare(`
+  public static async getUserTeamIds(userId: number): Promise<number[]> {
+    const rows = await db.query<{ team_id: number }>(`
+      SELECT team_id FROM team_members WHERE user_id = ?
+      UNION
+      SELECT id as team_id FROM teams WHERE lead_id = ?
+    `, [userId, userId]);
+    return rows.map((r) => Number(r.team_id));
+  }
+
+  /**
+   * List all teams (enriched with lead name, member count, and user membership status)
+   */
+  public static async getAllTeams(currentUser: User): Promise<Team[]> {
+    const rows = await db.query(`
       SELECT 
         t.id, t.name, t.description, t.lead_id, t.created_at,
         u.name as lead_name, u.email as lead_email,
-        (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) as member_count
+        (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) as member_count,
+        EXISTS(
+          SELECT 1 FROM team_members tm2 WHERE tm2.team_id = t.id AND tm2.user_id = ?
+          UNION
+          SELECT 1 FROM teams t2 WHERE t2.id = t.id AND t2.lead_id = ?
+        ) as is_member
       FROM teams t
       LEFT JOIN users u ON t.lead_id = u.id
       ORDER BY t.name ASC
-    `).all() as any[];
+    `, [currentUser.id, currentUser.id]);
 
     return rows.map((r) => ({
       id: r.id,
@@ -45,7 +62,8 @@ export class TeamService {
       lead_id: r.lead_id,
       lead_name: r.lead_name,
       lead_email: r.lead_email,
-      member_count: r.member_count,
+      member_count: Number(r.member_count),
+      is_member: Boolean(r.is_member),
       created_at: r.created_at
     }));
   }
@@ -53,16 +71,21 @@ export class TeamService {
   /**
    * Get team details by ID
    */
-  public static getTeamById(teamId: number, currentUser: User): Team {
-    const row = db.prepare(`
+  public static async getTeamById(teamId: number, currentUser: User): Promise<Team> {
+    const row = await db.queryOne(`
       SELECT 
         t.id, t.name, t.description, t.lead_id, t.created_at,
         u.name as lead_name, u.email as lead_email,
-        (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) as member_count
+        (SELECT COUNT(*) FROM team_members tm WHERE tm.team_id = t.id) as member_count,
+        EXISTS(
+          SELECT 1 FROM team_members tm2 WHERE tm2.team_id = t.id AND tm2.user_id = ?
+          UNION
+          SELECT 1 FROM teams t2 WHERE t2.id = t.id AND t2.lead_id = ?
+        ) as is_member
       FROM teams t
       LEFT JOIN users u ON t.lead_id = u.id
       WHERE t.id = ?
-    `).get(teamId) as any;
+    `, [currentUser.id, currentUser.id, teamId]);
 
     if (!row) {
       const err = new Error(`Team with ID ${teamId} not found`);
@@ -70,7 +93,6 @@ export class TeamService {
       throw err;
     }
 
-    // RBAC: Admins can view everything. Members/PM can view all teams or their own teams.
     return {
       id: row.id,
       name: row.name,
@@ -78,7 +100,8 @@ export class TeamService {
       lead_id: row.lead_id,
       lead_name: row.lead_name,
       lead_email: row.lead_email,
-      member_count: row.member_count,
+      member_count: Number(row.member_count),
+      is_member: Boolean(row.is_member),
       created_at: row.created_at
     };
   }
@@ -86,7 +109,7 @@ export class TeamService {
   /**
    * Create a new team with optional initial members (Admin only)
    */
-  public static createTeam(dto: CreateTeamDTO, actor: User): Team {
+  public static async createTeam(dto: CreateTeamDTO, actor: User): Promise<Team> {
     if (!this.isAdmin(actor)) {
       const err = new Error('Only administrators can create teams');
       (err as any).code = 'FORBIDDEN';
@@ -101,7 +124,7 @@ export class TeamService {
     }
 
     // Check duplicate name
-    const existing = db.prepare('SELECT id FROM teams WHERE name = ? COLLATE NOCASE').get(trimmedName);
+    const existing = await db.queryOne('SELECT id FROM teams WHERE LOWER(name) = LOWER(?)', [trimmedName]);
     if (existing) {
       const err = new Error(`Team name '${trimmedName}' is already in use`);
       (err as any).code = 'CONFLICT';
@@ -110,7 +133,7 @@ export class TeamService {
 
     // Validate lead if specified
     if (dto.lead_id) {
-      const leadExists = db.prepare('SELECT id FROM users WHERE id = ?').get(dto.lead_id);
+      const leadExists = await db.queryOne('SELECT id FROM users WHERE id = ?', [dto.lead_id]);
       if (!leadExists) {
         const err = new Error(`Lead user with ID ${dto.lead_id} does not exist`);
         (err as any).code = 'USER_NOT_FOUND';
@@ -119,13 +142,13 @@ export class TeamService {
     }
 
     // ATOMIC TRANSACTION: Create team and insert members
-    const createTx = db.transaction(() => {
-      const insertStmt = db.prepare(`
+    const createdTeamId = await db.withTransaction(async (tx) => {
+      const res = await tx.queryOne(`
         INSERT INTO teams (name, description, lead_id)
         VALUES (?, ?, ?)
-      `);
-      const res = insertStmt.run(trimmedName, dto.description?.trim() || null, dto.lead_id || null);
-      const newTeamId = Number(res.lastInsertRowid);
+        RETURNING id
+      `, [trimmedName, dto.description?.trim() || null, dto.lead_id || null]);
+      const newTeamId = Number(res.id);
 
       // Auto-add lead to team members if lead is specified
       const memberSet = new Set<number>(dto.member_ids || []);
@@ -133,27 +156,25 @@ export class TeamService {
         memberSet.add(dto.lead_id);
       }
 
-      const insertMemberStmt = db.prepare(`
-        INSERT OR IGNORE INTO team_members (team_id, user_id)
-        VALUES (?, ?)
-      `);
-
       for (const memberId of memberSet) {
-        const userExists = db.prepare('SELECT id FROM users WHERE id = ?').get(memberId);
+        const userExists = await tx.queryOne('SELECT id FROM users WHERE id = ?', [memberId]);
         if (!userExists) {
           throw new Error(`Cannot add non-existent user ${memberId} to team`);
         }
-        insertMemberStmt.run(newTeamId, memberId);
+        await tx.execute(`
+          INSERT INTO team_members (team_id, user_id)
+          VALUES (?, ?)
+          ON CONFLICT DO NOTHING
+        `, [newTeamId, memberId]);
       }
 
       return newTeamId;
     });
 
-    const createdTeamId = createTx();
-    const createdTeam = this.getTeamById(createdTeamId, actor);
+    const createdTeam = await this.getTeamById(createdTeamId, actor);
 
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.TEAM_CREATED, actor.id, createdTeam);
+    await eventDispatcher.dispatch(DomainEventType.TEAM_CREATED, actor.id, createdTeam);
 
     return createdTeam;
   }
@@ -161,8 +182,8 @@ export class TeamService {
   /**
    * Update team properties (Admin or Team Lead)
    */
-  public static updateTeam(teamId: number, dto: UpdateTeamDTO, actor: User): Team {
-    const team = this.getTeamById(teamId, actor);
+  public static async updateTeam(teamId: number, dto: UpdateTeamDTO, actor: User): Promise<Team> {
+    const team = await this.getTeamById(teamId, actor);
 
     const isLead = team.lead_id === actor.id;
     if (!this.isAdmin(actor) && !isLead) {
@@ -180,7 +201,7 @@ export class TeamService {
 
     // Name uniqueness check if renamed
     if (trimmedName.toLowerCase() !== team.name.toLowerCase()) {
-      const duplicate = db.prepare('SELECT id FROM teams WHERE name = ? COLLATE NOCASE AND id != ?').get(trimmedName, teamId);
+      const duplicate = await db.queryOne('SELECT id FROM teams WHERE LOWER(name) = LOWER(?) AND id != ?', [trimmedName, teamId]);
       if (duplicate) {
         const err = new Error(`Team name '${trimmedName}' is already taken`);
         (err as any).code = 'CONFLICT';
@@ -197,7 +218,7 @@ export class TeamService {
         throw err;
       }
       if (dto.lead_id !== null) {
-        const userExists = db.prepare('SELECT id FROM users WHERE id = ?').get(dto.lead_id);
+        const userExists = await db.queryOne('SELECT id FROM users WHERE id = ?', [dto.lead_id]);
         if (!userExists) {
           const err = new Error(`User ${dto.lead_id} does not exist`);
           (err as any).code = 'USER_NOT_FOUND';
@@ -207,32 +228,32 @@ export class TeamService {
       newLeadId = dto.lead_id;
     }
 
-    const updateTx = db.transaction(() => {
-      db.prepare(`
+    await db.withTransaction(async (tx) => {
+      await tx.execute(`
         UPDATE teams
         SET name = ?, description = ?, lead_id = ?
         WHERE id = ?
-      `).run(
+      `, [
         trimmedName,
         dto.description !== undefined ? dto.description?.trim() || null : team.description,
         newLeadId,
         teamId
-      );
+      ]);
 
       // If new lead assigned, ensure they are in team_members
       if (newLeadId) {
-        db.prepare(`
-          INSERT OR IGNORE INTO team_members (team_id, user_id)
+        await tx.execute(`
+          INSERT INTO team_members (team_id, user_id)
           VALUES (?, ?)
-        `).run(teamId, newLeadId);
+          ON CONFLICT DO NOTHING
+        `, [teamId, newLeadId]);
       }
     });
 
-    updateTx();
-    const updated = this.getTeamById(teamId, actor);
+    const updated = await this.getTeamById(teamId, actor);
 
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.TEAM_UPDATED, actor.id, updated);
+    await eventDispatcher.dispatch(DomainEventType.TEAM_UPDATED, actor.id, updated);
 
     return updated;
   }
@@ -240,32 +261,30 @@ export class TeamService {
   /**
    * Delete a team (Admin only)
    */
-  public static deleteTeam(teamId: number, actor: User): void {
+  public static async deleteTeam(teamId: number, actor: User): Promise<void> {
     if (!this.isAdmin(actor)) {
       const err = new Error('Only administrators can delete teams');
       (err as any).code = 'FORBIDDEN';
       throw err;
     }
 
-    const team = this.getTeamById(teamId, actor);
+    const team = await this.getTeamById(teamId, actor);
 
-    const deleteTx = db.transaction(() => {
-      db.prepare('DELETE FROM teams WHERE id = ?').run(teamId);
+    await db.withTransaction(async (tx) => {
+      await tx.execute('DELETE FROM teams WHERE id = ?', [teamId]);
     });
 
-    deleteTx();
-
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.TEAM_DELETED, actor.id, { id: teamId, name: team.name });
+    await eventDispatcher.dispatch(DomainEventType.TEAM_DELETED, actor.id, { id: teamId, name: team.name });
   }
 
   /**
    * Get members of a team
    */
-  public static getTeamMembers(teamId: number, currentUser: User): TeamMember[] {
-    this.getTeamById(teamId, currentUser); // Ensure team exists
+  public static async getTeamMembers(teamId: number, currentUser: User): Promise<TeamMember[]> {
+    await this.getTeamById(teamId, currentUser); // Ensure team exists
 
-    const rows = db.prepare(`
+    const rows = await db.query(`
       SELECT 
         tm.team_id, tm.user_id,
         u.name, u.email, u.role, u.avatar_url
@@ -273,7 +292,7 @@ export class TeamService {
       JOIN users u ON tm.user_id = u.id
       WHERE tm.team_id = ?
       ORDER BY u.name ASC
-    `).all(teamId) as any[];
+    `, [teamId]);
 
     return rows;
   }
@@ -281,8 +300,8 @@ export class TeamService {
   /**
    * Add a member to a team (Admin or Team Lead)
    */
-  public static addMember(teamId: number, userId: number, actor: User): TeamMember {
-    const team = this.getTeamById(teamId, actor);
+  public static async addMember(teamId: number, userId: number, actor: User): Promise<TeamMember> {
+    const team = await this.getTeamById(teamId, actor);
 
     const isLead = team.lead_id === actor.id;
     if (!this.isAdmin(actor) && !isLead) {
@@ -291,25 +310,23 @@ export class TeamService {
       throw err;
     }
 
-    const user = db.prepare('SELECT id, name, email, role, avatar_url FROM users WHERE id = ?').get(userId) as any;
+    const user = await db.queryOne('SELECT id, name, email, role, avatar_url FROM users WHERE id = ?', [userId]);
     if (!user) {
       const err = new Error(`User with ID ${userId} not found`);
       (err as any).code = 'USER_NOT_FOUND';
       throw err;
     }
 
-    const existing = db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?').get(teamId, userId);
+    const existing = await db.queryOne('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?', [teamId, userId]);
     if (existing) {
       const err = new Error(`User is already a member of this team`);
       (err as any).code = 'CONFLICT';
       throw err;
     }
 
-    const addTx = db.transaction(() => {
-      db.prepare('INSERT INTO team_members (team_id, user_id) VALUES (?, ?)').run(teamId, userId);
+    await db.withTransaction(async (tx) => {
+      await tx.execute('INSERT INTO team_members (team_id, user_id) VALUES (?, ?)', [teamId, userId]);
     });
-
-    addTx();
 
     const newMember: TeamMember = {
       team_id: teamId,
@@ -321,7 +338,7 @@ export class TeamService {
     };
 
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.TEAM_MEMBER_ADDED, actor.id, newMember);
+    await eventDispatcher.dispatch(DomainEventType.TEAM_MEMBER_ADDED, actor.id, newMember);
 
     return newMember;
   }
@@ -329,8 +346,8 @@ export class TeamService {
   /**
    * Remove a member from a team (Admin or Team Lead)
    */
-  public static removeMember(teamId: number, userId: number, actor: User): void {
-    const team = this.getTeamById(teamId, actor);
+  public static async removeMember(teamId: number, userId: number, actor: User): Promise<void> {
+    const team = await this.getTeamById(teamId, actor);
 
     const isLead = team.lead_id === actor.id;
     if (!this.isAdmin(actor) && !isLead) {
@@ -339,20 +356,18 @@ export class TeamService {
       throw err;
     }
 
-    const existing = db.prepare('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?').get(teamId, userId);
+    const existing = await db.queryOne('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?', [teamId, userId]);
     if (!existing) {
       const err = new Error(`User is not a member of this team`);
       (err as any).code = 'NOT_FOUND';
       throw err;
     }
 
-    const removeTx = db.transaction(() => {
-      db.prepare('DELETE FROM team_members WHERE team_id = ? AND user_id = ?').run(teamId, userId);
+    await db.withTransaction(async (tx) => {
+      await tx.execute('DELETE FROM team_members WHERE team_id = ? AND user_id = ?', [teamId, userId]);
     });
 
-    removeTx();
-
     // POST-COMMIT: Event Dispatcher
-    eventDispatcher.dispatch(DomainEventType.TEAM_MEMBER_REMOVED, actor.id, { teamId, userId });
+    await eventDispatcher.dispatch(DomainEventType.TEAM_MEMBER_REMOVED, actor.id, { teamId, userId });
   }
 }

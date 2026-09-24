@@ -93,10 +93,14 @@ async function runPhase3Tests() {
 
     const timestamp = Date.now();
 
-    // Fetch flagship UPSOW project
-    const upsowProject = db.prepare("SELECT id FROM projects WHERE name = 'UPSOW'").get() as { id: number };
-    assert.ok(upsowProject, 'UPSOW project must exist');
-    const projectId = upsowProject.id;
+    // Create dedicated project for Phase 3 test with pmUser as manager and devUser as member
+    const createProjRes = await testRequest('POST', '/api/projects', {
+      name: `Phase3 Project ${timestamp}`,
+      manager_id: pmUser.id,
+      member_ids: [devUser.id]
+    }, adminToken);
+    assert.strictEqual(createProjRes.status, 201, 'Phase 3 project creation must succeed');
+    const projectId = createProjRes.body.data.id;
 
     // ----------------------------------------------------
     // Test 1: Task Creation (Title, Description, Priority, Due Date, Subtasks)
@@ -129,7 +133,7 @@ async function runPhase3Tests() {
     const getTaskRes = await testRequest('GET', `/api/tasks/${taskId}`, undefined, devToken);
     assert.strictEqual(getTaskRes.status, 200);
     assert.strictEqual(getTaskRes.body.data.id, taskId);
-    assert.strictEqual(getTaskRes.body.data.project_name, 'UPSOW');
+    assert.ok(getTaskRes.body.data.project_name, 'Project name must be present');
     assert.strictEqual(getTaskRes.body.data.creator_name, pmUser.name);
     assert.strictEqual(getTaskRes.body.data.subtasks.length, 3);
     assert.ok(getTaskRes.body.data.activity_logs.length >= 1, 'Must have creation activity log');

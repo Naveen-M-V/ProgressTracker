@@ -329,15 +329,15 @@ export function TaskDetailModal({ taskId, onClose }: TaskDetailModalProps) {
               style={{
                 fontFamily: 'monospace',
                 fontSize: '0.85rem',
-                color: 'var(--brand-secondary)',
+                color: task?.item_type === 'EVENT' ? '#c084fc' : 'var(--brand-secondary)',
                 fontWeight: 700,
-                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                backgroundColor: task?.item_type === 'EVENT' ? 'rgba(168, 85, 247, 0.15)' : 'rgba(59, 130, 246, 0.1)',
                 padding: '3px 8px',
                 borderRadius: 'var(--radius-sm)',
-                border: '1px solid rgba(59, 130, 246, 0.25)'
+                border: task?.item_type === 'EVENT' ? '1px solid rgba(168, 85, 247, 0.35)' : '1px solid rgba(59, 130, 246, 0.25)'
               }}
             >
-              #TASK-{task ? task.id : taskId}
+              #{task?.item_type === 'EVENT' ? 'EVENT' : 'TASK'}-{task ? task.id : taskId}
             </span>
 
             {task && (
@@ -1156,11 +1156,13 @@ export function TaskDetailModal({ taskId, onClose }: TaskDetailModalProps) {
               {/* Dates */}
               <div>
                 <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '8px' }}>
-                  Timeline & Dates
+                  {task.item_type === 'EVENT' ? 'Event Schedule' : 'Timeline & Dates'}
                 </label>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.825rem' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Due Date:</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>
+                      {task.item_type === 'EVENT' ? 'Event Date:' : 'Due Date:'}
+                    </span>
                     <span style={{ fontWeight: 600, color: task.due_date ? 'var(--text-primary)' : 'var(--text-muted)' }}>
                       {task.due_date ? new Date(task.due_date).toLocaleDateString() : 'Not set'}
                     </span>

@@ -1,13 +1,13 @@
 import { db } from '../db.js';
 import { broadcastToUser } from '../sockets.js';
-import { Notification, CreateNotificationDTO, NotificationType } from '../types/notification.js';
+import { Notification, CreateNotificationDTO } from '../types/notification.js';
 
 export class NotificationService {
   /**
-   * Create a new notification, persist it to SQLite, and broadcast via Socket.io
+   * Create a new notification, persist it to PostgreSQL, and broadcast via Socket.io
    */
-  public static createNotification(dto: CreateNotificationDTO): Notification {
-    const stmt = db.prepare(`
+  public static async createNotification(dto: CreateNotificationDTO): Promise<Notification> {
+    const row = await db.queryOne(`
       INSERT INTO notifications (
         recipient_id,
         actor_id,
@@ -17,10 +17,9 @@ export class NotificationService {
         entity_type,
         entity_id,
         is_read
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0)
-    `);
-
-    const result = stmt.run(
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, FALSE)
+      RETURNING id
+    `, [
       dto.recipientId,
       dto.actorId || null,
       dto.type,
@@ -28,10 +27,10 @@ export class NotificationService {
       dto.message,
       dto.entityType || 'TASK',
       dto.entityId
-    );
+    ]);
 
-    const notificationId = Number(result.lastInsertRowid);
-    const notification = this.getNotificationById(notificationId);
+    const notificationId = Number(row.id);
+    const notification = await this.getNotificationById(notificationId);
 
     if (notification) {
       // Real-time Socket.io push to recipient's personal socket room
@@ -44,8 +43,8 @@ export class NotificationService {
   /**
    * Retrieve single notification by ID with actor details
    */
-  public static getNotificationById(id: number): Notification | null {
-    const row = db.prepare(`
+  public static async getNotificationById(id: number): Promise<Notification | null> {
+    const row = await db.queryOne(`
       SELECT 
         n.*,
         u.name as actor_name,
@@ -53,7 +52,7 @@ export class NotificationService {
       FROM notifications n
       LEFT JOIN users u ON n.actor_id = u.id
       WHERE n.id = ?
-    `).get(id) as any;
+    `, [id]);
 
     if (!row) return null;
 
@@ -66,13 +65,13 @@ export class NotificationService {
   /**
    * Retrieve list of notifications for a specific user
    */
-  public static getUserNotifications(
+  public static async getUserNotifications(
     userId: number,
     options: { unreadOnly?: boolean; limit?: number; offset?: number } = {}
-  ): Notification[] {
+  ): Promise<Notification[]> {
     const { unreadOnly = false, limit = 50, offset = 0 } = options;
 
-    let query = `
+    let sql = `
       SELECT 
         n.*,
         u.name as actor_name,
@@ -85,15 +84,15 @@ export class NotificationService {
     const params: any[] = [userId];
 
     if (unreadOnly) {
-      query += ` AND n.is_read = 0`;
+      sql += ` AND n.is_read = FALSE`;
     }
 
-    query += ` ORDER BY n.created_at DESC LIMIT ? OFFSET ?`;
+    sql += ` ORDER BY n.created_at DESC LIMIT ? OFFSET ?`;
     params.push(limit, offset);
 
-    const rows = db.prepare(query).all(...params) as any[];
+    const rows = await db.query(sql, params);
 
-    return rows.map((r) => ({
+    return rows.map((r: any) => ({
       ...r,
       is_read: Boolean(r.is_read)
     })) as Notification[];
@@ -102,21 +101,21 @@ export class NotificationService {
   /**
    * Count unread notifications for a user
    */
-  public static getUnreadCount(userId: number): number {
-    const result = db.prepare(`
+  public static async getUnreadCount(userId: number): Promise<number> {
+    const result = await db.queryOne<{ count: number }>(`
       SELECT COUNT(*) as count 
       FROM notifications 
-      WHERE recipient_id = ? AND is_read = 0
-    `).get(userId) as { count: number };
+      WHERE recipient_id = ? AND is_read = FALSE
+    `, [userId]);
 
-    return result ? result.count : 0;
+    return result ? Number(result.count) : 0;
   }
 
   /**
    * Mark a specific notification as read
    */
-  public static markAsRead(notificationId: number, userId: number): Notification {
-    const existing = this.getNotificationById(notificationId);
+  public static async markAsRead(notificationId: number, userId: number): Promise<Notification> {
+    const existing = await this.getNotificationById(notificationId);
     if (!existing) {
       const err = new Error('Notification not found');
       (err as any).code = 'NOT_FOUND';
@@ -129,13 +128,13 @@ export class NotificationService {
       throw err;
     }
 
-    db.prepare(`
+    await db.execute(`
       UPDATE notifications 
-      SET is_read = 1 
+      SET is_read = TRUE 
       WHERE id = ? AND recipient_id = ?
-    `).run(notificationId, userId);
+    `, [notificationId, userId]);
 
-    const updated = this.getNotificationById(notificationId)!;
+    const updated = (await this.getNotificationById(notificationId))!;
 
     // Broadcast update to user's devices
     broadcastToUser(userId, 'notification:read', { id: notificationId });
@@ -146,14 +145,14 @@ export class NotificationService {
   /**
    * Mark all notifications for a user as read
    */
-  public static markAllAsRead(userId: number): { updatedCount: number } {
-    const result = db.prepare(`
+  public static async markAllAsRead(userId: number): Promise<{ updatedCount: number }> {
+    const result = await db.execute(`
       UPDATE notifications 
-      SET is_read = 1 
-      WHERE recipient_id = ? AND is_read = 0
-    `).run(userId);
+      SET is_read = TRUE 
+      WHERE recipient_id = ? AND is_read = FALSE
+    `, [userId]);
 
-    const updatedCount = result.changes;
+    const updatedCount = result.rowCount;
 
     broadcastToUser(userId, 'notification:all_read', { userId, updatedCount });
 
@@ -163,8 +162,8 @@ export class NotificationService {
   /**
    * Delete a notification
    */
-  public static deleteNotification(notificationId: number, userId: number): boolean {
-    const existing = this.getNotificationById(notificationId);
+  public static async deleteNotification(notificationId: number, userId: number): Promise<boolean> {
+    const existing = await this.getNotificationById(notificationId);
     if (!existing) {
       const err = new Error('Notification not found');
       (err as any).code = 'NOT_FOUND';
@@ -177,21 +176,17 @@ export class NotificationService {
       throw err;
     }
 
-    db.prepare('DELETE FROM notifications WHERE id = ? AND recipient_id = ?').run(notificationId, userId);
+    await db.execute('DELETE FROM notifications WHERE id = ? AND recipient_id = ?', [notificationId, userId]);
     return true;
   }
 
   /**
    * Automated Deadline Reminder Engine
-   * Checks active tasks with deadlines and generates timely alerts without duplicates:
-   * - 3 days before
-   * - 1 day before (tomorrow)
-   * - Due today
-   * - Overdue
+   * Checks active tasks with deadlines and generates timely alerts without duplicates
    */
-  public static checkAndCreateDeadlineReminders(): { remindersCreated: number; details: any[] } {
+  public static async checkAndCreateDeadlineReminders(): Promise<{ remindersCreated: number; details: any[] }> {
     // 1. Fetch active tasks with deadlines and assigned users
-    const tasks = db.prepare(`
+    const tasks = await db.query(`
       SELECT 
         t.id,
         t.title,
@@ -204,22 +199,13 @@ export class NotificationService {
       WHERE t.status != 'COMPLETED' 
         AND t.due_date IS NOT NULL 
         AND t.assignee_id IS NOT NULL
-    `).all() as any[];
+    `);
 
     let remindersCreated = 0;
     const details: any[] = [];
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-
-    const checkDuplicateStmt = db.prepare(`
-      SELECT id FROM notifications 
-      WHERE recipient_id = ? 
-        AND entity_id = ? 
-        AND type = 'DEADLINE_REMINDER' 
-        AND title = ? 
-        AND date(created_at) = date('now')
-    `);
 
     for (const task of tasks) {
       const due = new Date(task.due_date);
@@ -247,12 +233,19 @@ export class NotificationService {
       }
 
       if (reminderTitle && reminderMessage) {
-        // Idempotency check: Don't spam the user with the same reminder multiple times today
-        const existingReminder = checkDuplicateStmt.get(task.assignee_id, task.id, reminderTitle);
+        const existingReminder = await db.queryOne(`
+          SELECT id FROM notifications 
+          WHERE recipient_id = ? 
+            AND entity_id = ? 
+            AND type = 'DEADLINE_REMINDER' 
+            AND title = ? 
+            AND DATE(created_at) = CURRENT_DATE
+        `, [task.assignee_id, task.id, reminderTitle]);
+
         if (!existingReminder) {
-          this.createNotification({
+          await this.createNotification({
             recipientId: task.assignee_id,
-            actorId: null, // System-generated alert
+            actorId: null,
             type: 'DEADLINE_REMINDER',
             title: reminderTitle,
             message: reminderMessage,

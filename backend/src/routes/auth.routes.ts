@@ -8,10 +8,10 @@ const router = Router();
 /**
  * POST /api/auth/signup - Register a new user
  */
-router.post('/signup', (req: Request, res: Response) => {
+router.post('/signup', async (req: Request, res: Response) => {
   try {
     const { name, email, password, role, avatar_url } = req.body;
-    const result = AuthService.signup({ name, email, password, role, avatar_url });
+    const result = await AuthService.signup({ name, email, password, role, avatar_url });
     return sendSuccess(res, result, 201);
   } catch (error: any) {
     const code = error.code || 'VALIDATION_ERROR';
@@ -23,10 +23,10 @@ router.post('/signup', (req: Request, res: Response) => {
 /**
  * POST /api/auth/login - Authenticate with email and password
  */
-router.post('/login', (req: Request, res: Response) => {
+router.post('/login', async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
-    const result = AuthService.login({ email, password });
+    const result = await AuthService.login({ email, password });
     return sendSuccess(res, result, 200);
   } catch (error: any) {
     const code = error.code || 'AUTH_REQUIRED';
@@ -60,9 +60,47 @@ router.get('/demo-accounts', (req: Request, res: Response) => {
 /**
  * GET /api/auth/users - List all users (for task assignments & team selects)
  */
-router.get('/users', authenticateToken, (req: Request, res: Response) => {
-  const users = AuthService.getAllUsers();
-  return sendSuccess(res, users);
+router.get('/users', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const users = await AuthService.getAllUsers();
+    return sendSuccess(res, users);
+  } catch (error: any) {
+    return sendError(res, 'INTERNAL_ERROR', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/auth/users - Admin creates a new user or project manager
+ */
+router.post('/users', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const { name, email, password, role, avatar_url } = req.body;
+    const user = await AuthService.adminCreateUser({ name, email, password, role, avatar_url });
+    return sendSuccess(res, user, 201);
+  } catch (error: any) {
+    const code = error.code || 'VALIDATION_ERROR';
+    const statusCode = code === 'CONFLICT' ? 409 : code === 'FORBIDDEN' ? 403 : 400;
+    return sendError(res, code, error.message, statusCode);
+  }
+});
+
+/**
+ * PATCH /api/auth/users/:id/role - Admin promotes or demotes a user role
+ */
+router.patch('/users/:id/role', authenticateToken, requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const userId = parseInt(String(req.params.id), 10);
+    const { role } = req.body;
+    if (!role) {
+      return sendError(res, 'VALIDATION_ERROR', 'Role is required in request body', 400);
+    }
+    const updatedUser = await AuthService.updateUserRole(userId, role, req.user!.id);
+    return sendSuccess(res, updatedUser);
+  } catch (error: any) {
+    const code = error.code || 'VALIDATION_ERROR';
+    const statusCode = code === 'USER_NOT_FOUND' ? 404 : code === 'FORBIDDEN' ? 403 : 400;
+    return sendError(res, code, error.message, statusCode);
+  }
 });
 
 /**

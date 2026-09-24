@@ -11,9 +11,9 @@ router.use(authenticateToken);
 /**
  * GET /api/projects - List projects accessible to current user
  */
-router.get('/', (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
-    const projects = ProjectService.getAllProjects(req.user!);
+    const projects = await ProjectService.getAllProjects(req.user!);
     return sendSuccess(res, projects);
   } catch (err: any) {
     return sendError(res, err.code || 'INTERNAL_ERROR', err.message, 500);
@@ -23,10 +23,10 @@ router.get('/', (req: Request, res: Response) => {
 /**
  * GET /api/projects/:id - Get project details by ID
  */
-router.get('/:id', (req: Request, res: Response) => {
+router.get('/:id', async (req: Request, res: Response) => {
   try {
     const projectId = parseInt(String(req.params.id), 10);
-    const project = ProjectService.getProjectById(projectId, req.user!);
+    const project = await ProjectService.getProjectById(projectId, req.user!);
     return sendSuccess(res, project);
   } catch (err: any) {
     const code = err.code || 'INTERNAL_ERROR';
@@ -38,10 +38,10 @@ router.get('/:id', (req: Request, res: Response) => {
 /**
  * POST /api/projects - Create a new project (Admin or Project Manager)
  */
-router.post('/', requireProjectManagerOrAdmin, (req: Request, res: Response) => {
+router.post('/', requireProjectManagerOrAdmin, async (req: Request, res: Response) => {
   try {
     const { name, description, team_id, manager_id, status, member_ids } = req.body;
-    const project = ProjectService.createProject(
+    const project = await ProjectService.createProject(
       { name, description, team_id, manager_id, status, member_ids },
       req.user!
     );
@@ -56,11 +56,31 @@ router.post('/', requireProjectManagerOrAdmin, (req: Request, res: Response) => 
 /**
  * PUT /api/projects/:id - Update project (Admin or assigned Manager)
  */
-router.put('/:id', (req: Request, res: Response) => {
+router.put('/:id', async (req: Request, res: Response) => {
   try {
     const projectId = parseInt(String(req.params.id), 10);
     const { name, description, team_id, manager_id, status } = req.body;
-    const updated = ProjectService.updateProject(
+    const updated = await ProjectService.updateProject(
+      projectId,
+      { name, description, team_id, manager_id, status },
+      req.user!
+    );
+    return sendSuccess(res, updated);
+  } catch (err: any) {
+    const code = err.code || 'VALIDATION_ERROR';
+    const status = code === 'PROJECT_NOT_FOUND' ? 404 : code === 'FORBIDDEN' ? 403 : code === 'CONFLICT' ? 409 : 400;
+    return sendError(res, code, err.message, status);
+  }
+});
+
+/**
+ * PATCH /api/projects/:id - Partial update project
+ */
+router.patch('/:id', async (req: Request, res: Response) => {
+  try {
+    const projectId = parseInt(String(req.params.id), 10);
+    const { name, description, team_id, manager_id, status } = req.body;
+    const updated = await ProjectService.updateProject(
       projectId,
       { name, description, team_id, manager_id, status },
       req.user!
@@ -76,10 +96,10 @@ router.put('/:id', (req: Request, res: Response) => {
 /**
  * DELETE /api/projects/:id - Delete project (Admin only)
  */
-router.delete('/:id', requireAdmin, (req: Request, res: Response) => {
+router.delete('/:id', requireAdmin, async (req: Request, res: Response) => {
   try {
     const projectId = parseInt(String(req.params.id), 10);
-    ProjectService.deleteProject(projectId, req.user!);
+    await ProjectService.deleteProject(projectId, req.user!);
     return sendSuccess(res, { message: 'Project deleted successfully' });
   } catch (err: any) {
     const code = err.code || 'INTERNAL_ERROR';
@@ -91,10 +111,10 @@ router.delete('/:id', requireAdmin, (req: Request, res: Response) => {
 /**
  * GET /api/projects/:id/members - Get members of project
  */
-router.get('/:id/members', (req: Request, res: Response) => {
+router.get('/:id/members', async (req: Request, res: Response) => {
   try {
     const projectId = parseInt(String(req.params.id), 10);
-    const members = ProjectService.getProjectMembers(projectId, req.user!);
+    const members = await ProjectService.getProjectMembers(projectId, req.user!);
     return sendSuccess(res, members);
   } catch (err: any) {
     const code = err.code || 'INTERNAL_ERROR';
@@ -106,14 +126,14 @@ router.get('/:id/members', (req: Request, res: Response) => {
 /**
  * POST /api/projects/:id/members - Add member to project
  */
-router.post('/:id/members', (req: Request, res: Response) => {
+router.post('/:id/members', async (req: Request, res: Response) => {
   try {
     const projectId = parseInt(String(req.params.id), 10);
     const { user_id, role_in_project } = req.body;
     if (!user_id) {
       return sendError(res, 'VALIDATION_ERROR', 'user_id is required', 400);
     }
-    const member = ProjectService.addMember(
+    const member = await ProjectService.addMember(
       projectId,
       parseInt(user_id, 10),
       role_in_project || 'MEMBER',
@@ -130,11 +150,11 @@ router.post('/:id/members', (req: Request, res: Response) => {
 /**
  * DELETE /api/projects/:id/members/:userId - Remove member from project
  */
-router.delete('/:id/members/:userId', (req: Request, res: Response) => {
+router.delete('/:id/members/:userId', async (req: Request, res: Response) => {
   try {
     const projectId = parseInt(String(req.params.id), 10);
     const userId = parseInt(String(req.params.userId), 10);
-    ProjectService.removeMember(projectId, userId, req.user!);
+    await ProjectService.removeMember(projectId, userId, req.user!);
     return sendSuccess(res, { message: 'Member removed from project successfully' });
   } catch (err: any) {
     const code = err.code || 'VALIDATION_ERROR';
@@ -146,11 +166,11 @@ router.delete('/:id/members/:userId', (req: Request, res: Response) => {
 /**
  * GET /api/projects/:id/progress - Get real-time project progress calculation
  */
-router.get('/:id/progress', (req: Request, res: Response) => {
+router.get('/:id/progress', async (req: Request, res: Response) => {
   try {
     const projectId = parseInt(String(req.params.id), 10);
-    ProjectService.getProjectById(projectId, req.user!); // verify access
-    const progress = ProjectService.calculateProgress(projectId);
+    await ProjectService.getProjectById(projectId, req.user!); // verify access
+    const progress = await ProjectService.calculateProgress(projectId);
     return sendSuccess(res, progress);
   } catch (err: any) {
     const code = err.code || 'INTERNAL_ERROR';

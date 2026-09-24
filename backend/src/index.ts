@@ -16,10 +16,6 @@ import { registerNotificationEventHandlers } from './events/handlers/notificatio
 
 dotenv.config();
 
-// Ensure DB schema and initial seed
-initializeDatabase();
-seedDatabase();
-
 const app = express();
 const server = http.createServer(app);
 
@@ -42,24 +38,25 @@ app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
 /**
- * Health check endpoint - PRD Phase 0 Foundation verification
+ * Health check endpoint - PRD Foundation verification
  */
-app.get('/api/health', (req: Request, res: Response) => {
+app.get('/api/health', async (req: Request, res: Response) => {
   try {
     // Verify database liveness
-    const dbCheck = db.prepare('SELECT 1 as alive').get() as { alive: number };
-    const userCount = (db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number }).count;
-    const teamCount = (db.prepare('SELECT COUNT(*) as count FROM teams').get() as { count: number }).count;
-    const projectCount = (db.prepare('SELECT COUNT(*) as count FROM projects').get() as { count: number }).count;
-    const taskCount = (db.prepare('SELECT COUNT(*) as count FROM tasks').get() as { count: number }).count;
+    const dbCheck = await db.queryOne<{ alive: number }>('SELECT 1 as alive');
+    const userCount = Number((await db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM users'))?.count || 0);
+    const teamCount = Number((await db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM teams'))?.count || 0);
+    const projectCount = Number((await db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM projects'))?.count || 0);
+    const taskCount = Number((await db.queryOne<{ count: number }>('SELECT COUNT(*) as count FROM tasks'))?.count || 0);
 
     return sendSuccess(res, {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       database: {
-        status: dbCheck.alive === 1 ? 'connected' : 'degraded',
-        engine: 'SQLite (WAL mode)',
+        status: dbCheck?.alive === 1 ? 'connected' : 'degraded',
+        engine: 'PostgreSQL (Neon)',
+        schema: 'upsow',
         counts: {
           users: userCount,
           teams: teamCount,
@@ -73,6 +70,7 @@ app.get('/api/health', (req: Request, res: Response) => {
     return sendError(res, 'INTERNAL_ERROR', 'Health check failed: ' + error.message, 500);
   }
 });
+
 // Mount API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/teams', teamsRoutes);
@@ -92,13 +90,22 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   sendError(res, 'INTERNAL_ERROR', err.message || 'Internal server error', 500);
 });
 
-// Only start the server listener if executed directly as main script and not in test mode
-const isDirectRun = process.argv[1] && (process.argv[1].endsWith('index.ts') || process.argv[1].endsWith('index.js'));
-if (process.env.NODE_ENV !== 'test' && isDirectRun && !server.listening) {
-  server.listen(port, () => {
-    console.log(`[Upsow Backend] Running on http://localhost:${port}`);
-    console.log(`[Upsow Backend] Health check: http://localhost:${port}/api/health`);
-  });
+async function startServer() {
+  // Ensure DB schema and initial seed
+  await initializeDatabase();
+  await seedDatabase();
+
+  const isDirectRun = process.argv[1] && (process.argv[1].endsWith('index.ts') || process.argv[1].endsWith('index.js'));
+  if (process.env.NODE_ENV !== 'test' && isDirectRun && !server.listening) {
+    server.listen(port, () => {
+      console.log(`[Upsow Backend] Running on http://localhost:${port}`);
+      console.log(`[Upsow Backend] Health check: http://localhost:${port}/api/health`);
+    });
+  }
 }
+
+startServer().catch(err => {
+  console.error('[Upsow Backend] Startup failed:', err);
+});
 
 export { app, server };

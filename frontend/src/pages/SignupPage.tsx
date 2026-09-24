@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { UserPlus, Mail, Lock, User as UserIcon, ArrowRight } from 'lucide-react';
+import { Mail, Lock, User as UserIcon, ArrowRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
+import { TaskItUpLogo } from '../components/common/TaskItUpLogo.js';
 
 interface SignupPageProps {
   onSwitchToLogin: () => void;
@@ -30,29 +31,17 @@ export function SignupPage({ onSwitchToLogin }: SignupPageProps) {
         justifyContent: 'center',
         padding: '24px',
         backgroundColor: 'var(--bg-primary)',
-        backgroundImage: 'radial-gradient(ellipse at 50% 10%, rgba(79, 70, 229, 0.15) 0%, transparent 60%)',
+        backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(37, 99, 235, 0.24) 0%, rgba(139, 92, 246, 0.12) 40%, transparent 70%)',
       }}
     >
       <div style={{ width: '100%', maxWidth: '440px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div
-            style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--brand-gradient)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: 'var(--shadow-glow)',
-              marginBottom: '16px',
-            }}
-          >
-            <UserPlus size={24} color="#ffffff" />
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <TaskItUpLogo variant="full" size={88} />
           </div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '6px' }}>Create an Account</h2>
+          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '6px', letterSpacing: '-0.02em' }}>Create an Account</h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Join the Upsow Progress Tracker Team Workspace
+            Join the TaskItUp Team Workspace
           </p>
         </div>
 
@@ -118,7 +107,7 @@ export function SignupPage({ onSwitchToLogin }: SignupPageProps) {
                 <input
                   type="email"
                   required
-                  placeholder="alex@upsow.com"
+                  placeholder="alex@taskitup.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   style={{

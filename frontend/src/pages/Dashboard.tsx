@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   CheckCircle2,
   Clock,
@@ -5,7 +6,9 @@ import {
   ListTodo,
   TrendingUp,
   ArrowRight,
-  Plus
+  Plus,
+  Users,
+  FolderLock
 } from 'lucide-react';
 import { useTasks } from '../context/TaskContext.js';
 import { useAuth } from '../context/AuthContext.js';
@@ -15,6 +18,7 @@ import { StatusBadge } from '../components/common/StatusBadge.js';
 import { UserAvatar } from '../components/common/UserAvatar.js';
 import { TaskCreateModal } from '../components/tasks/TaskCreateModal.js';
 import { TaskDetailModal } from '../components/tasks/TaskDetailModal.js';
+import { ProjectMembersModal } from '../components/projects/ProjectMembersModal.js';
 
 interface DashboardProps {
   onNavigateToKanban: () => void;
@@ -29,8 +33,11 @@ export function Dashboard({ onNavigateToKanban }: DashboardProps) {
     selectedTaskId,
     isCreateModalOpen,
     setIsCreateModalOpen,
+    setIsProjectCreateModalOpen,
     updateTaskStatus
   } = useTasks();
+
+  const [isMembersModalOpen, setIsMembersModalOpen] = useState(false);
 
   // Metrics calculations
   const totalTasks = tasks.length;
@@ -54,6 +61,55 @@ export function Dashboard({ onNavigateToKanban }: DashboardProps) {
 
   const progressPercentage =
     totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : selectedProject?.progress?.progress_percentage || 0;
+
+  // Dedicated empty state when user has no assigned project
+  if (!selectedProject) {
+    return (
+      <div
+        style={{
+          flex: 1,
+          padding: '48px 32px',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          textAlign: 'center',
+          gap: '16px'
+        }}
+      >
+        <div
+          style={{
+            width: '64px',
+            height: '64px',
+            borderRadius: '50%',
+            backgroundColor: 'rgba(99, 102, 241, 0.15)',
+            border: '1px solid rgba(99, 102, 241, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            color: 'var(--brand-secondary)'
+          }}
+        >
+          <FolderLock size={32} />
+        </div>
+        <h2 style={{ fontSize: '1.5rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
+          No Projects Assigned
+        </h2>
+        <p style={{ color: 'var(--text-secondary)', maxWidth: '480px', fontSize: '0.95rem', margin: 0 }}>
+          You are not currently assigned to any active project. Only projects you lead or belong to are visible in your workspace dashboard.
+        </p>
+        {(user?.role === 'ADMIN' || user?.role === 'PROJECT_MANAGER') && (
+          <button
+            onClick={() => setIsProjectCreateModalOpen(true)}
+            className="btn-primary"
+            style={{ marginTop: '8px', padding: '10px 20px' }}
+          >
+            <Plus size={16} /> Create New Project
+          </button>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -97,25 +153,34 @@ export function Dashboard({ onNavigateToKanban }: DashboardProps) {
               </span>
             </div>
             <h1 style={{ fontSize: '1.75rem', fontWeight: 800, margin: 0, color: '#ffffff' }}>
-              {selectedProject?.name || 'UPSOW Flagship Tracker'}
+              {selectedProject.name}
             </h1>
             <p style={{ color: 'var(--text-secondary)', marginTop: '4px', fontSize: '0.9rem', maxWidth: '680px' }}>
-              {selectedProject?.description || 'Collaborative task execution workspace and real-time delivery pipeline.'}
+              {selectedProject.description || 'Collaborative project execution workspace and delivery pipeline.'}
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button
+              onClick={() => setIsMembersModalOpen(true)}
+              className="btn-secondary"
+              style={{ padding: '9px 16px', fontSize: '0.85rem' }}
+              title="View and manage project members"
+            >
+              <Users size={16} />
+              <span>Members ({selectedProject.member_count ?? 1})</span>
+            </button>
             <button
               onClick={() => setIsCreateModalOpen(true)}
               className="btn-primary"
-              style={{ padding: '9px 18px' }}
+              style={{ padding: '9px 16px', fontSize: '0.85rem' }}
             >
               <Plus size={16} /> New Task
             </button>
             <button
               onClick={onNavigateToKanban}
               className="btn-secondary"
-              style={{ padding: '9px 18px' }}
+              style={{ padding: '9px 16px', fontSize: '0.85rem' }}
             >
               Open Kanban Board <ArrowRight size={16} />
             </button>
@@ -222,12 +287,12 @@ export function Dashboard({ onNavigateToKanban }: DashboardProps) {
               width: '46px',
               height: '46px',
               borderRadius: 'var(--radius-md)',
-              backgroundColor: 'rgba(79, 70, 229, 0.15)',
-              border: '1px solid rgba(79, 70, 229, 0.3)',
+              backgroundColor: 'rgba(37, 99, 235, 0.15)',
+              border: '1px solid rgba(37, 99, 235, 0.3)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              color: '#818cf8'
+              color: 'var(--brand-secondary)'
             }}
           >
             <Clock size={24} />
@@ -384,9 +449,9 @@ export function Dashboard({ onNavigateToKanban }: DashboardProps) {
                           updateTaskStatus(t.id, t.status === 'TODO' ? 'IN_PROGRESS' : 'COMPLETED');
                         }}
                         style={{
-                          background: 'rgba(79, 70, 229, 0.2)',
-                          color: '#818cf8',
-                          border: '1px solid rgba(79, 70, 229, 0.4)',
+                          background: 'rgba(37, 99, 235, 0.2)',
+                          color: '#93c5fd',
+                          border: '1px solid rgba(37, 99, 235, 0.4)',
                           padding: '4px 8px',
                           borderRadius: 'var(--radius-sm)',
                           fontSize: '0.725rem',
@@ -496,6 +561,11 @@ export function Dashboard({ onNavigateToKanban }: DashboardProps) {
       <TaskDetailModal
         taskId={selectedTaskId}
         onClose={() => setSelectedTaskId(null)}
+      />
+
+      <ProjectMembersModal
+        isOpen={isMembersModalOpen}
+        onClose={() => setIsMembersModalOpen(false)}
       />
     </div>
   );

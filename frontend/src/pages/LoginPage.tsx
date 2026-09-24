@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Lock, Mail, ArrowRight, ShieldCheck, Briefcase, Code, Cpu, Palette } from 'lucide-react';
+import { Lock, Mail, ArrowRight, ShieldCheck, Briefcase, Code } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.js';
+import { TaskItUpLogo } from '../components/common/TaskItUpLogo.js';
 
 interface LoginPageProps {
   onSwitchToSignup: () => void;
@@ -36,30 +37,20 @@ export function LoginPage({ onSwitchToSignup }: LoginPageProps) {
         justifyContent: 'center',
         padding: '24px',
         backgroundColor: 'var(--bg-primary)',
-        backgroundImage: 'radial-gradient(ellipse at 50% 10%, rgba(79, 70, 229, 0.15) 0%, transparent 60%)',
+        backgroundImage: 'radial-gradient(ellipse at 50% 0%, rgba(37, 99, 235, 0.24) 0%, rgba(139, 92, 246, 0.12) 40%, transparent 70%)',
       }}
     >
       <div style={{ width: '100%', maxWidth: '440px' }}>
         {/* Logo and Intro */}
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <div
-            style={{
-              width: '48px',
-              height: '48px',
-              borderRadius: 'var(--radius-lg)',
-              background: 'var(--brand-gradient)',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              boxShadow: 'var(--shadow-glow)',
-              marginBottom: '16px',
-            }}
-          >
-            <Lock size={24} color="#ffffff" />
+        <div style={{ textAlign: 'center', marginBottom: '28px' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <TaskItUpLogo variant="full" size={88} />
           </div>
-          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '6px' }}>Sign in to Upsow</h2>
+          <h2 style={{ fontSize: '1.75rem', fontWeight: 800, marginBottom: '6px', letterSpacing: '-0.02em' }}>
+            Sign in to <span style={{ color: 'var(--text-primary)' }}>Task</span><span style={{ color: 'var(--brand-primary)' }}>ItUp</span>
+          </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-            Internal Team Task-Management & Collaboration
+            Modern Team Task Management &amp; Collaboration
           </p>
         </div>
 
@@ -100,7 +91,7 @@ export function LoginPage({ onSwitchToSignup }: LoginPageProps) {
                 <input
                   type="email"
                   required
-                  placeholder="name@upsow.com"
+                  placeholder="name@taskitup.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   style={{
@@ -169,16 +160,16 @@ export function LoginPage({ onSwitchToSignup }: LoginPageProps) {
           {/* Quick Demo Impersonation Buttons */}
           <div style={{ marginTop: '28px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)' }}>
             <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px', textAlign: 'center' }}>
-              Instant Demo Access (Click to test roles)
+              Instant Demo Access (Seeded Accounts)
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
               <button
                 type="button"
                 onClick={() => handleDemoClick('admin@upsow.com', 'Admin@123')}
                 className="btn-secondary"
-                style={{ fontSize: '0.75rem', padding: '8px 10px', justifyContent: 'flex-start' }}
+                style={{ fontSize: '0.75rem', padding: '8px 10px', flexDirection: 'column', gap: '4px', textAlign: 'center', justifyContent: 'center' }}
               >
-                <ShieldCheck size={14} color="#c084fc" />
+                <ShieldCheck size={16} color="#c084fc" />
                 <span>Admin</span>
               </button>
 
@@ -186,42 +177,20 @@ export function LoginPage({ onSwitchToSignup }: LoginPageProps) {
                 type="button"
                 onClick={() => handleDemoClick('pm@upsow.com', 'Manager@123')}
                 className="btn-secondary"
-                style={{ fontSize: '0.75rem', padding: '8px 10px', justifyContent: 'flex-start' }}
+                style={{ fontSize: '0.75rem', padding: '8px 10px', flexDirection: 'column', gap: '4px', textAlign: 'center', justifyContent: 'center' }}
               >
-                <Briefcase size={14} color="#fbbf24" />
-                <span>Project Manager</span>
+                <Briefcase size={16} color="#fbbf24" />
+                <span>Manager</span>
               </button>
 
               <button
                 type="button"
                 onClick={() => handleDemoClick('developer@upsow.com', 'Developer@123')}
                 className="btn-secondary"
-                style={{ fontSize: '0.75rem', padding: '8px 10px', justifyContent: 'flex-start' }}
+                style={{ fontSize: '0.75rem', padding: '8px 10px', flexDirection: 'column', gap: '4px', textAlign: 'center', justifyContent: 'center' }}
               >
-                <Code size={14} color="#60a5fa" />
+                <Code size={16} color="#60a5fa" />
                 <span>Developer</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleDemoClick('operationhead@upsow.com', 'Operations@123')}
-                className="btn-secondary"
-                style={{ fontSize: '0.75rem', padding: '8px 10px', justifyContent: 'flex-start' }}
-              >
-                <Cpu size={14} color="#34d399" />
-                <span>Operations</span>
-              </button>
-            </div>
-
-            <div style={{ marginTop: '8px' }}>
-              <button
-                type="button"
-                onClick={() => handleDemoClick('design@upsow.com', 'Designer@123')}
-                className="btn-secondary"
-                style={{ width: '100%', fontSize: '0.75rem', padding: '8px 10px', justifyContent: 'center' }}
-              >
-                <Palette size={14} color="#f472b6" />
-                <span>Designer (design@upsow.com)</span>
               </button>
             </div>
           </div>

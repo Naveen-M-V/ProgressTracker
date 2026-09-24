@@ -109,4 +109,36 @@ export function registerSocketEventHandlers(): void {
       });
     });
   }
+
+  // Project Member Added
+  eventDispatcher.subscribe(DomainEventType.PROJECT_MEMBER_ADDED, (event: DomainEvent) => {
+    const member = event.payload;
+    broadcastToProject(member.project_id, 'project:member_added', {
+      member,
+      actorId: event.actorId,
+      timestamp: event.timestamp
+    });
+    broadcastToUser(member.user_id, 'project:assigned_to_you', {
+      projectId: member.project_id,
+      actorId: event.actorId,
+      timestamp: event.timestamp
+    });
+  });
+
+  // Project Member Removed
+  eventDispatcher.subscribe(DomainEventType.PROJECT_MEMBER_REMOVED, (event: DomainEvent) => {
+    const { projectId, userId } = event.payload;
+    broadcastToProject(projectId, 'project:member_removed', {
+      projectId,
+      userId,
+      actorId: event.actorId,
+      timestamp: event.timestamp
+    });
+    broadcastToUser(userId, 'project:removed_from_you', {
+      projectId,
+      actorId: event.actorId,
+      timestamp: event.timestamp
+    });
+  });
 }
+

@@ -5,14 +5,14 @@ import { db } from '../../db.js';
 
 /**
  * Register Automated Notification Listeners on the Central Event Dispatcher
- * Dispatched strictly AFTER SQLite transaction commits
+ * Dispatched strictly AFTER transaction commits
  */
 export function registerNotificationEventHandlers(): void {
   // 1. Task Created with an initial Assignee
-  eventDispatcher.subscribe(DomainEventType.TASK_CREATED, (event: DomainEvent) => {
+  eventDispatcher.subscribe(DomainEventType.TASK_CREATED, async (event: DomainEvent) => {
     const task = event.payload;
     if (task.assignee_id && task.assignee_id !== event.actorId) {
-      NotificationService.createNotification({
+      await NotificationService.createNotification({
         recipientId: task.assignee_id,
         actorId: event.actorId,
         type: 'TASK_ASSIGNED',
@@ -25,10 +25,10 @@ export function registerNotificationEventHandlers(): void {
   });
 
   // 2. Task Assigned / Reassigned
-  eventDispatcher.subscribe(DomainEventType.TASK_ASSIGNED, (event: DomainEvent) => {
+  eventDispatcher.subscribe(DomainEventType.TASK_ASSIGNED, async (event: DomainEvent) => {
     const { task, newAssigneeId } = event.payload;
     if (newAssigneeId && newAssigneeId !== event.actorId) {
-      NotificationService.createNotification({
+      await NotificationService.createNotification({
         recipientId: newAssigneeId,
         actorId: event.actorId,
         type: 'TASK_ASSIGNED',
@@ -41,7 +41,7 @@ export function registerNotificationEventHandlers(): void {
   });
 
   // 3. Task Status Changed
-  eventDispatcher.subscribe(DomainEventType.TASK_STATUS_CHANGED, (event: DomainEvent) => {
+  eventDispatcher.subscribe(DomainEventType.TASK_STATUS_CHANGED, async (event: DomainEvent) => {
     const { task, newStatus } = event.payload;
 
     const recipients = new Set<number>();
@@ -57,7 +57,7 @@ export function registerNotificationEventHandlers(): void {
     const notifTitle = newStatus === 'COMPLETED' ? 'Task Completed' : 'Task Status Updated';
 
     for (const recipientId of recipients) {
-      NotificationService.createNotification({
+      await NotificationService.createNotification({
         recipientId,
         actorId: event.actorId,
         type: notifType,
@@ -70,7 +70,7 @@ export function registerNotificationEventHandlers(): void {
   });
 
   // 4. Task Comment Added
-  eventDispatcher.subscribe(DomainEventType.TASK_COMMENT_ADDED, (event: DomainEvent) => {
+  eventDispatcher.subscribe(DomainEventType.TASK_COMMENT_ADDED, async (event: DomainEvent) => {
     const { comment, task } = event.payload;
     if (!task) return;
 
@@ -85,10 +85,10 @@ export function registerNotificationEventHandlers(): void {
     }
 
     // Task Watchers
-    const watchers = db.prepare(`
+    const watchers = await db.query<{ user_id: number }>(`
       SELECT user_id FROM task_watchers 
       WHERE task_id = ? AND user_id != ?
-    `).all(task.id, event.actorId) as { user_id: number }[];
+    `, [task.id, event.actorId]);
 
     for (const w of watchers) {
       recipients.add(w.user_id);
@@ -99,7 +99,7 @@ export function registerNotificationEventHandlers(): void {
       : comment.content;
 
     for (const recipientId of recipients) {
-      NotificationService.createNotification({
+      await NotificationService.createNotification({
         recipientId,
         actorId: event.actorId,
         type: 'TASK_COMMENT_ADDED',

@@ -90,20 +90,39 @@ async function runPhase6Tests() {
     const devToken = devLogin.body.data.token;
     const devUser = devLogin.body.data.user;
 
-    const opsLogin = await testRequest('POST', '/api/auth/login', { email: 'operationhead@upsow.com', password: 'Operations@123' });
-    const opsToken = opsLogin.body.data.token;
-    const opsUser = opsLogin.body.data.user;
-
     const timestamp = Date.now();
 
-    // Fetch Development team (ID: 1) and Operations team (ID: 2)
-    const devTeam = db.prepare("SELECT id FROM teams WHERE name = 'Development'").get() as { id: number };
-    const opsTeam = db.prepare("SELECT id FROM teams WHERE name = 'Operations'").get() as { id: number };
-    assert.ok(devTeam && opsTeam, 'Teams must exist');
+    const opsSignup = await testRequest('POST', '/api/auth/signup', {
+      name: 'Operations Head',
+      email: `ops_${timestamp}@upsow.com`,
+      password: 'Operations@123'
+    });
+    const opsToken = opsSignup.body.data.token;
+    const opsUser = opsSignup.body.data.user;
 
-    // Fetch flagship UPSOW project
-    const upsowProject = db.prepare("SELECT id FROM projects WHERE name = 'UPSOW'").get() as { id: number };
-    const projectId = upsowProject.id;
+    // Create Development team and Operations team
+    const createDevTeam = await testRequest('POST', '/api/teams', {
+      name: `Development ${timestamp}`,
+      description: 'Engineering',
+      member_ids: [devUser.id]
+    }, adminToken);
+    const devTeam = createDevTeam.body.data;
+
+    const createOpsTeam = await testRequest('POST', '/api/teams', {
+      name: `Operations ${timestamp}`,
+      description: 'Operations',
+      member_ids: [opsUser.id]
+    }, adminToken);
+    const opsTeam = createOpsTeam.body.data;
+
+    // Create main project for calendar tasks
+    const createMainProj = await testRequest('POST', '/api/projects', {
+      name: `UPSOW ${timestamp}`,
+      team_id: devTeam.id,
+      manager_id: pmUser.id,
+      member_ids: [devUser.id]
+    }, adminToken);
+    const projectId = createMainProj.body.data.id;
 
     // ----------------------------------------------------
     // Test 1: Role-Based Project Creation Permissions

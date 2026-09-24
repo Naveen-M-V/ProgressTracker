@@ -39,9 +39,14 @@ function AuthenticatedWorkspace() {
           {activeTab === 'kanban' && <KanbanBoard />}
           {activeTab === 'calendar' && <CalendarView />}
           {activeTab === 'mywork' && <MyWork />}
+          {activeTab === 'teams' && (
+            <div style={{ flex: 1, overflowY: 'auto' }}>
+              <DashboardShell initialTab="teams" />
+            </div>
+          )}
           {activeTab === 'rbac' && (
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              <DashboardShell />
+              <DashboardShell initialTab="users" />
             </div>
           )}
         </main>
@@ -77,8 +82,8 @@ function MainApp() {
           style={{
             width: '40px',
             height: '40px',
-            border: '3px solid rgba(99, 102, 241, 0.2)',
-            borderTopColor: 'var(--brand-secondary)',
+            border: '3px solid rgba(37, 99, 235, 0.2)',
+            borderTopColor: 'var(--brand-primary)',
             borderRadius: '50%',
             animation: 'spin 1s linear infinite',
           }}
@@ -88,7 +93,7 @@ function MainApp() {
             to { transform: rotate(360deg); }
           }
         `}</style>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Verifying Upsow Session...</p>
+        <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>Verifying TaskItUp Session...</p>
       </div>
     );
   }

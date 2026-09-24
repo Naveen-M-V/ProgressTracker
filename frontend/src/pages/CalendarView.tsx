@@ -4,10 +4,12 @@ import {
   ChevronRight,
   RotateCcw,
   Plus,
-  Clock
+  Clock,
+  Calendar
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.js';
 import { useTasks } from '../context/TaskContext.js';
-import { Task, TaskStatus } from '../types/task.js';
+import { Task, TaskStatus, ItemType } from '../types/task.js';
 import { PriorityBadge } from '../components/common/PriorityBadge.js';
 import { StatusBadge } from '../components/common/StatusBadge.js';
 import { UserAvatar } from '../components/common/UserAvatar.js';
@@ -17,6 +19,7 @@ import { TaskDetailModal } from '../components/tasks/TaskDetailModal.js';
 type CalendarViewMode = 'month' | 'week' | 'day';
 
 export function CalendarView() {
+  const { user } = useAuth();
   const {
     tasks,
     projects,
@@ -28,6 +31,13 @@ export function CalendarView() {
     setIsCreateModalOpen
   } = useTasks();
 
+  const availableTeams = useMemo(() => {
+    if (!user || user.role === 'ADMIN' || user.role === 'PROJECT_MANAGER') {
+      return teams;
+    }
+    return teams.filter((t) => t.is_member);
+  }, [teams, user]);
+
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<CalendarViewMode>('month');
 
@@ -36,22 +46,26 @@ export function CalendarView() {
   const [filterTeamId, setFilterTeamId] = useState<string>('all');
   const [filterAssigneeId, setFilterAssigneeId] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterItemType, setFilterItemType] = useState<string>('all');
 
-  // Pre-filled date for task creation when clicking a calendar day
+  // Pre-filled date and type for modal when creating from calendar
   const [createDate, setCreateDate] = useState<string>('');
+  const [createItemType, setCreateItemType] = useState<ItemType>('TASK');
 
   const resetFilters = () => {
     setFilterProjectId('all');
     setFilterTeamId('all');
     setFilterAssigneeId('all');
     setFilterStatus('all');
+    setFilterItemType('all');
   };
 
   const hasActiveFilters =
     filterProjectId !== 'all' ||
     filterTeamId !== 'all' ||
     filterAssigneeId !== 'all' ||
-    filterStatus !== 'all';
+    filterStatus !== 'all' ||
+    filterItemType !== 'all';
 
   // Apply simultaneous multi-faceted filters
   const filteredTasks = useMemo(() => {
@@ -72,9 +86,13 @@ export function CalendarView() {
       if (filterStatus !== 'all' && t.status !== filterStatus) {
         return false;
       }
+      if (filterItemType !== 'all') {
+        const itemType = t.item_type || 'TASK';
+        if (itemType !== filterItemType) return false;
+      }
       return true;
     });
-  }, [tasks, filterProjectId, filterTeamId, filterAssigneeId, filterStatus]);
+  }, [tasks, filterProjectId, filterTeamId, filterAssigneeId, filterStatus, filterItemType]);
 
   // Navigation handlers
   const handlePrev = () => {
@@ -120,6 +138,10 @@ export function CalendarView() {
   const isTaskOnDate = (task: Task, dateStr: string) => {
     const taskDue = task.due_date ? task.due_date.split('T')[0] : null;
     const taskStart = task.start_date ? task.start_date.split('T')[0] : null;
+
+    if (task.item_type === 'EVENT') {
+      return taskDue === dateStr;
+    }
 
     if (taskDue && taskStart) {
       return dateStr >= taskStart && dateStr <= taskDue;
@@ -222,8 +244,9 @@ export function CalendarView() {
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   }, []);
 
-  const handleDayClick = (dateStr: string) => {
+  const handleDayClick = (dateStr: string, defaultType: ItemType = 'TASK') => {
     setCreateDate(dateStr);
+    setCreateItemType(defaultType);
     setIsCreateModalOpen(true);
   };
 
@@ -308,17 +331,38 @@ export function CalendarView() {
             ))}
           </div>
 
-          <button
-            onClick={() => {
-              setCreateDate(todayStr);
-              setIsCreateModalOpen(true);
-            }}
-            className="btn-primary"
-            style={{ padding: '6px 14px', fontSize: '0.825rem' }}
-          >
-            <Plus size={16} />
-            <span>New Task</span>
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              onClick={() => {
+                setCreateDate(todayStr);
+                setCreateItemType('TASK');
+                setIsCreateModalOpen(true);
+              }}
+              className="btn-secondary"
+              style={{ padding: '6px 14px', fontSize: '0.825rem' }}
+            >
+              <Plus size={15} />
+              <span>New Task</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setCreateDate(todayStr);
+                setCreateItemType('EVENT');
+                setIsCreateModalOpen(true);
+              }}
+              className="btn-primary"
+              style={{
+                padding: '6px 14px',
+                fontSize: '0.825rem',
+                backgroundColor: '#9333ea',
+                borderColor: '#a855f7'
+              }}
+            >
+              <Calendar size={15} />
+              <span>New Event</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -338,7 +382,26 @@ export function CalendarView() {
           Filter By:
         </span>
 
-        {/* 1. Project Filter */}
+        {/* 1. Item Type Filter: All vs Tasks vs Events */}
+        <select
+          value={filterItemType}
+          onChange={(e) => setFilterItemType(e.target.value)}
+          style={{
+            backgroundColor: 'var(--bg-tertiary)',
+            border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius-md)',
+            padding: '5px 10px',
+            color: 'var(--text-primary)',
+            fontSize: '0.8rem',
+            fontWeight: 600
+          }}
+        >
+          <option value="all">All Types (Tasks & Events)</option>
+          <option value="TASK">Tasks Only</option>
+          <option value="EVENT">Events Only</option>
+        </select>
+
+        {/* 2. Project Filter */}
         <select
           value={filterProjectId}
           onChange={(e) => setFilterProjectId(e.target.value)}
@@ -359,7 +422,7 @@ export function CalendarView() {
           ))}
         </select>
 
-        {/* 2. Team Filter */}
+        {/* 3. Team Filter */}
         <select
           value={filterTeamId}
           onChange={(e) => setFilterTeamId(e.target.value)}
@@ -372,15 +435,15 @@ export function CalendarView() {
             fontSize: '0.8rem'
           }}
         >
-          <option value="all">All Teams</option>
-          {teams.map((t) => (
+          <option value="all">{user?.role === 'ADMIN' ? 'All Teams' : 'All My Teams'}</option>
+          {availableTeams.map((t) => (
             <option key={t.id} value={t.id}>
               {t.name} Team
             </option>
           ))}
         </select>
 
-        {/* 3. Person / Assignee Filter */}
+        {/* 4. Person / Assignee Filter */}
         <select
           value={filterAssigneeId}
           onChange={(e) => setFilterAssigneeId(e.target.value)}
@@ -402,7 +465,7 @@ export function CalendarView() {
           ))}
         </select>
 
-        {/* 4. Status Filter */}
+        {/* 5. Status Filter */}
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
@@ -416,7 +479,7 @@ export function CalendarView() {
           }}
         >
           <option value="all">All Statuses</option>
-          <option value="TODO">To Do</option>
+          <option value="TODO">To Do / Scheduled</option>
           <option value="IN_PROGRESS">In Progress</option>
           <option value="REVIEW">In Review</option>
           <option value="BLOCKED">Blocked</option>
@@ -435,7 +498,7 @@ export function CalendarView() {
         )}
 
         <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginLeft: 'auto' }}>
-          Showing <strong>{filteredTasks.length}</strong> tasks
+          Showing <strong>{filteredTasks.length}</strong> {filteredTasks.length === 1 ? 'item' : 'items'}
         </span>
       </div>
 
@@ -536,33 +599,40 @@ export function CalendarView() {
 
                     {/* Task Strips in Day Cell */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '2px' }}>
-                      {dayTasks.slice(0, 3).map((task: Task) => (
-                        <div
-                          key={task.id}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedTaskId(task.id);
-                          }}
-                          style={{
-                            padding: '3px 6px',
-                            borderRadius: 'var(--radius-sm)',
-                            backgroundColor: `${getStatusColor(task.status)}22`,
-                            borderLeft: `3px solid ${getStatusColor(task.status)}`,
-                            fontSize: '0.725rem',
-                            fontWeight: 600,
-                            color: 'var(--text-primary)',
-                            whiteSpace: 'nowrap',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            transition: 'transform var(--transition-fast)'
-                          }}
-                          title={`${task.title} (${task.status})`}
-                          onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.02)')}
-                          onMouseLeave={(e) => (e.currentTarget.style.transform = 'none')}
-                        >
-                          {task.title}
-                        </div>
-                      ))}
+                      {dayTasks.slice(0, 3).map((task: Task) => {
+                        const isEvent = task.item_type === 'EVENT';
+                        return (
+                          <div
+                            key={task.id}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedTaskId(task.id);
+                            }}
+                            style={{
+                              padding: '3px 6px',
+                              borderRadius: 'var(--radius-sm)',
+                              backgroundColor: isEvent ? 'rgba(147, 51, 234, 0.25)' : `${getStatusColor(task.status)}22`,
+                              borderLeft: isEvent ? '3px solid #c084fc' : `3px solid ${getStatusColor(task.status)}`,
+                              fontSize: '0.725rem',
+                              fontWeight: 600,
+                              color: isEvent ? '#f3e8ff' : 'var(--text-primary)',
+                              whiteSpace: 'nowrap',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px',
+                              transition: 'transform var(--transition-fast)'
+                            }}
+                            title={isEvent ? `Event: ${task.title}` : `${task.title} (${task.status})`}
+                            onMouseEnter={(e) => (e.currentTarget.style.transform = 'scale(1.02)')}
+                            onMouseLeave={(e) => (e.currentTarget.style.transform = 'none')}
+                          >
+                            {isEvent && <Calendar size={11} color="#c084fc" style={{ flexShrink: 0 }} />}
+                            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.title}</span>
+                          </div>
+                        );
+                      })}
                       {dayTasks.length > 3 && (
                         <span style={{ fontSize: '0.65rem', color: 'var(--brand-secondary)', fontWeight: 600, paddingLeft: '4px' }}>
                           +{dayTasks.length - 3} more
@@ -630,30 +700,57 @@ export function CalendarView() {
                           + Add
                         </div>
                       ) : (
-                        dayTasks.map((task: Task) => (
-                          <div
-                            key={task.id}
-                            onClick={() => setSelectedTaskId(task.id)}
-                            className="card-glass"
-                            style={{
-                              padding: '10px',
-                              cursor: 'pointer',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: '6px',
-                              borderLeft: `3px solid ${getStatusColor(task.status)}`
-                            }}
-                          >
-                            <PriorityBadge priority={task.priority} size="sm" />
-                            <div style={{ fontSize: '0.825rem', fontWeight: 600, color: 'var(--text-primary)' }}>
-                              {task.title}
+                        dayTasks.map((task: Task) => {
+                          const isEvent = task.item_type === 'EVENT';
+                          return (
+                            <div
+                              key={task.id}
+                              onClick={() => setSelectedTaskId(task.id)}
+                              className="card-glass"
+                              style={{
+                                padding: '10px',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                gap: '6px',
+                                borderLeft: isEvent ? '3px solid #c084fc' : `3px solid ${getStatusColor(task.status)}`,
+                                backgroundColor: isEvent ? 'rgba(88, 28, 135, 0.15)' : undefined
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                {isEvent ? (
+                                  <span
+                                    style={{
+                                      fontSize: '0.65rem',
+                                      fontWeight: 700,
+                                      textTransform: 'uppercase',
+                                      letterSpacing: '0.04em',
+                                      padding: '2px 7px',
+                                      borderRadius: '999px',
+                                      backgroundColor: 'rgba(168, 85, 247, 0.25)',
+                                      color: '#d8b4fe',
+                                      border: '1px solid rgba(168, 85, 247, 0.4)',
+                                      display: 'inline-flex',
+                                      alignItems: 'center',
+                                      gap: '3px'
+                                    }}
+                                  >
+                                    <Calendar size={10} /> Event
+                                  </span>
+                                ) : (
+                                  <PriorityBadge priority={task.priority} size="sm" />
+                                )}
+                              </div>
+                              <div style={{ fontSize: '0.825rem', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                {task.title}
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                                <span>#{task.id}</span>
+                                {task.assignee_name && <UserAvatar name={task.assignee_name} size={18} />}
+                              </div>
                             </div>
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-muted)' }}>
-                              <span>#{task.id}</span>
-                              {task.assignee_name && <UserAvatar name={task.assignee_name} size={18} />}
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       )}
                     </div>
                   </div>
@@ -666,26 +763,46 @@ export function CalendarView() {
         {/* VIEW 3: DAY AGENDA VIEW */}
         {viewMode === 'day' && (
           <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '800px', margin: '0 auto', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
               <div>
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 700, margin: 0 }}>
                   Daily Agenda
                 </h3>
                 <span style={{ fontSize: '0.825rem', color: 'var(--text-muted)' }}>
-                  Tasks scheduled or due on {currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+                  Items scheduled or due on {currentDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                 </span>
               </div>
-              <button
-                onClick={() => {
-                  const dStr = currentDate.toISOString().split('T')[0];
-                  setCreateDate(dStr);
-                  setIsCreateModalOpen(true);
-                }}
-                className="btn-primary"
-                style={{ padding: '6px 14px', fontSize: '0.8rem' }}
-              >
-                <Plus size={14} /> Schedule Task
-              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => {
+                    const dStr = currentDate.toISOString().split('T')[0];
+                    setCreateDate(dStr);
+                    setCreateItemType('TASK');
+                    setIsCreateModalOpen(true);
+                  }}
+                  className="btn-secondary"
+                  style={{ padding: '6px 14px', fontSize: '0.8rem' }}
+                >
+                  <Plus size={14} /> Schedule Task
+                </button>
+                <button
+                  onClick={() => {
+                    const dStr = currentDate.toISOString().split('T')[0];
+                    setCreateDate(dStr);
+                    setCreateItemType('EVENT');
+                    setIsCreateModalOpen(true);
+                  }}
+                  className="btn-primary"
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: '0.8rem',
+                    backgroundColor: '#9333ea',
+                    borderColor: '#a855f7'
+                  }}
+                >
+                  <Calendar size={14} /> Add Event
+                </button>
+              </div>
             </div>
 
             {/* List of Tasks for this Day */}
@@ -709,52 +826,77 @@ export function CalendarView() {
                     }}
                   >
                     <Clock size={32} color="var(--text-muted)" />
-                    <p style={{ margin: 0, fontSize: '0.95rem' }}>No tasks scheduled or due on this date.</p>
+                    <p style={{ margin: 0, fontSize: '0.95rem' }}>No tasks or events scheduled for this date.</p>
                   </div>
                 );
               }
 
               return (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {dayTasks.map((t: Task) => (
-                    <div
-                      key={t.id}
-                      onClick={() => setSelectedTaskId(t.id)}
-                      className="card-glass"
-                      style={{
-                        padding: '14px 18px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: '16px',
-                        borderLeft: `4px solid ${getStatusColor(t.status)}`
-                      }}
-                    >
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-                          <PriorityBadge priority={t.priority} size="sm" />
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                            Project: {t.project_name || `#${t.project_id}`}
-                          </span>
+                  {dayTasks.map((t: Task) => {
+                    const isEvent = t.item_type === 'EVENT';
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => setSelectedTaskId(t.id)}
+                        className="card-glass"
+                        style={{
+                          padding: '14px 18px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          gap: '16px',
+                          borderLeft: isEvent ? '4px solid #c084fc' : `4px solid ${getStatusColor(t.status)}`,
+                          backgroundColor: isEvent ? 'rgba(88, 28, 135, 0.15)' : undefined
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                            {isEvent ? (
+                              <span
+                                style={{
+                                  fontSize: '0.68rem',
+                                  fontWeight: 700,
+                                  textTransform: 'uppercase',
+                                  letterSpacing: '0.04em',
+                                  padding: '2px 8px',
+                                  borderRadius: '999px',
+                                  backgroundColor: 'rgba(168, 85, 247, 0.25)',
+                                  color: '#d8b4fe',
+                                  border: '1px solid rgba(168, 85, 247, 0.4)',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px'
+                                }}
+                              >
+                                <Calendar size={11} /> Event
+                              </span>
+                            ) : (
+                              <PriorityBadge priority={t.priority} size="sm" />
+                            )}
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                              Project: {t.project_name || `#${t.project_id}`}
+                            </span>
+                          </div>
+                          <h4 style={{ fontSize: '0.95rem', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
+                            {t.title}
+                          </h4>
                         </div>
-                        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>
-                          {t.title}
-                        </h4>
-                      </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        {t.assignee_name ? (
-                          <UserAvatar name={t.assignee_name} avatarUrl={t.assignee_avatar} size={24} showName />
-                        ) : (
-                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
-                            Unassigned
-                          </span>
-                        )}
-                        <StatusBadge status={t.status} size="sm" />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                          {t.assignee_name ? (
+                            <UserAvatar name={t.assignee_name} avatarUrl={t.assignee_avatar} size={24} showName />
+                          ) : (
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                              Unassigned
+                            </span>
+                          )}
+                          <StatusBadge status={t.status} size="sm" />
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               );
             })()}
@@ -768,9 +910,11 @@ export function CalendarView() {
         onClose={() => {
           setIsCreateModalOpen(false);
           setCreateDate('');
+          setCreateItemType('TASK');
         }}
         initialStatus="TODO"
         initialDueDate={createDate}
+        initialItemType={createItemType}
       />
 
       <TaskDetailModal
