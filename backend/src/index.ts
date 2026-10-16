@@ -28,13 +28,7 @@ const port = process.env.PORT || 5000;
 const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
 app.use(cors({
-  origin: (origin, callback) => {
-    // Allow non-browser requests (mobile, curl, desktop) or configured origin
-    if (!origin || origin === corsOrigin || origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:')) {
-      return callback(null, true);
-    }
-    return callback(new Error('Not allowed by CORS'));
-  },
+  origin: corsOrigin,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
