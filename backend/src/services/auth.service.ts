@@ -165,10 +165,40 @@ export class AuthService {
   }
 
   /**
-   * Return list of all users without sensitive fields
+   * Return users directory:
+   * - ADMIN: returns all users across the company
+   * - PROJECT_MANAGER / TEAM_MEMBER: strictly returns users in their own team(s) plus themselves
    */
-  public static async getAllUsers(): Promise<User[]> {
-    const rows = await db.query('SELECT id, name, email, role, avatar_url, created_at FROM users ORDER BY name ASC');
+  public static async getAllUsers(currentUser?: User): Promise<User[]> {
+    if (!currentUser || currentUser.role === 'ADMIN') {
+      const rows = await db.query('SELECT id, name, email, role, avatar_url, created_at FROM users ORDER BY name ASC');
+      return rows;
+    }
+
+    const rows = await db.query(`
+      SELECT DISTINCT u.id, u.name, u.email, u.role, u.avatar_url, u.created_at
+      FROM users u
+      WHERE u.id = ?
+         OR u.id IN (
+           SELECT tm.user_id 
+           FROM team_members tm
+           WHERE tm.team_id IN (
+             SELECT id FROM teams WHERE lead_id = ?
+             UNION
+             SELECT team_id FROM team_members WHERE user_id = ?
+           )
+         )
+         OR u.id IN (
+           SELECT t.lead_id
+           FROM teams t
+           WHERE t.id IN (
+             SELECT id FROM teams WHERE lead_id = ?
+             UNION
+             SELECT team_id FROM team_members WHERE user_id = ?
+           )
+         )
+      ORDER BY u.name ASC
+    `, [currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id]);
     return rows;
   }
 

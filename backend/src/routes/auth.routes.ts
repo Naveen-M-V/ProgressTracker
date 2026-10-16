@@ -62,7 +62,7 @@ router.get('/demo-accounts', (req: Request, res: Response) => {
  */
 router.get('/users', authenticateToken, async (req: Request, res: Response) => {
   try {
-    const users = await AuthService.getAllUsers();
+    const users = await AuthService.getAllUsers(req.user!);
     return sendSuccess(res, users);
   } catch (error: any) {
     return sendError(res, 'INTERNAL_ERROR', error.message, 500);

@@ -37,10 +37,10 @@ export class TeamService {
   }
 
   /**
-   * List all teams (enriched with lead name, member count, and user membership status)
+   * List teams (strictly scoped to own team for Project Managers and Members; all teams for Admins)
    */
   public static async getAllTeams(currentUser: User): Promise<Team[]> {
-    const rows = await db.query(`
+    let querySql = `
       SELECT 
         t.id, t.name, t.description, t.lead_id, t.created_at,
         u.name as lead_name, u.email as lead_email,
@@ -52,8 +52,19 @@ export class TeamService {
         ) as is_member
       FROM teams t
       LEFT JOIN users u ON t.lead_id = u.id
-      ORDER BY t.name ASC
-    `, [currentUser.id, currentUser.id]);
+    `;
+    const params: any[] = [currentUser.id, currentUser.id];
+
+    if (!this.isAdmin(currentUser)) {
+      querySql += `
+        WHERE t.lead_id = ?
+           OR t.id IN (SELECT tm3.team_id FROM team_members tm3 WHERE tm3.user_id = ?)
+      `;
+      params.push(currentUser.id, currentUser.id);
+    }
+
+    querySql += ' ORDER BY t.name ASC';
+    const rows = await db.query(querySql, params);
 
     return rows.map((r) => ({
       id: r.id,
@@ -90,6 +101,12 @@ export class TeamService {
     if (!row) {
       const err = new Error(`Team with ID ${teamId} not found`);
       (err as any).code = 'TEAM_NOT_FOUND';
+      throw err;
+    }
+
+    if (!this.isAdmin(currentUser) && !Boolean(row.is_member)) {
+      const err = new Error('You do not have permission to access this team');
+      (err as any).code = 'FORBIDDEN';
       throw err;
     }
 
