@@ -39,22 +39,22 @@ export class TaskService {
     const hasProjectAccess = await ProjectService.canUserAccessProject(task.project_id, user);
     if (!hasProjectAccess) return false;
 
-    // Project manager has oversight of all tasks in that project
+    // If task is assigned to a team, user must strictly belong to that team (or be team lead)
+    if (task.team_id !== null && task.team_id !== undefined) {
+      return await TeamService.isUserInTeam(task.team_id, user.id);
+    }
+
+    // Direct assignee or creator can always access the task
+    if (task.creator_id === user.id || task.assignee_id === user.id) return true;
+
+    // Unassigned project tasks: Project manager has oversight if they manage the project
     const project = await db.queryOne<{ manager_id: number | null }>(
       'SELECT manager_id FROM projects WHERE id = ?',
       [task.project_id]
     );
     if (project?.manager_id === user.id) return true;
 
-    // Direct assignee or creator can always access the task
-    if (task.creator_id === user.id || task.assignee_id === user.id) return true;
-
-    // If task is assigned to a team, user must belong to that team (or be team lead)
-    if (task.team_id !== null && task.team_id !== undefined) {
-      return await TeamService.isUserInTeam(task.team_id, user.id);
-    }
-
-    // Unassigned project tasks are accessible to all project members
+    // Otherwise accessible to project members
     return true;
   }
 
@@ -352,7 +352,7 @@ export class TaskService {
 
       conditions.push(`
         (
-          t.team_id IS NULL
+          (t.team_id IS NULL AND (t.assignee_id = ? OR t.creator_id = ? OR p.manager_id = ? OR t.project_id IN (SELECT project_id FROM project_members WHERE user_id = ?)))
           OR t.team_id IN (
             SELECT team_id FROM team_members WHERE user_id = ?
             UNION
@@ -360,10 +360,9 @@ export class TaskService {
           )
           OR t.assignee_id = ?
           OR t.creator_id = ?
-          OR p.manager_id = ?
         )
       `);
-      params.push(currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id);
+      params.push(currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id);
     }
 
     if (filters.project_id) {

@@ -24,10 +24,14 @@ export class ProjectService {
 
     if (isMember) return true;
 
-    // Check if project is assigned to a team the user belongs to
+    // Check if project is assigned to a team the user belongs to (as member or lead)
     const project = await db.queryOne<{ team_id: number | null }>('SELECT team_id FROM projects WHERE id = ?', [projectId]);
     if (project && project.team_id) {
-      const inTeam = await db.queryOne('SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?', [project.team_id, user.id]);
+      const inTeam = await db.queryOne(`
+        SELECT 1 FROM team_members WHERE team_id = ? AND user_id = ?
+        UNION
+        SELECT 1 FROM teams WHERE id = ? AND lead_id = ?
+      `, [project.team_id, user.id, project.team_id, user.id]);
       if (inTeam) return true;
     }
 
@@ -84,7 +88,7 @@ export class ProjectService {
         ORDER BY p.name ASC
       `);
     } else {
-      // Return projects user manages, is a member of, or where user's team is assigned
+      // Return projects user manages (within their team), is a member of, or where user's team is assigned
       rows = await db.query(`
         SELECT DISTINCT
           p.id, p.name, p.description, p.team_id, p.manager_id, p.status, p.created_at,
@@ -94,11 +98,11 @@ export class ProjectService {
         FROM projects p
         LEFT JOIN teams t ON p.team_id = t.id
         LEFT JOIN users u ON p.manager_id = u.id
-        WHERE p.manager_id = ?
+        WHERE (p.manager_id = ? AND (p.team_id IS NULL OR p.team_id IN (SELECT team_id FROM team_members WHERE user_id = ? UNION SELECT id FROM teams WHERE lead_id = ?)))
            OR p.id IN (SELECT project_id FROM project_members WHERE user_id = ?)
-           OR p.team_id IN (SELECT team_id FROM team_members WHERE user_id = ?)
+           OR p.team_id IN (SELECT team_id FROM team_members WHERE user_id = ? UNION SELECT id FROM teams WHERE lead_id = ?)
         ORDER BY p.name ASC
-      `, [currentUser.id, currentUser.id, currentUser.id]);
+      `, [currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id, currentUser.id]);
     }
 
     const projects: Project[] = [];

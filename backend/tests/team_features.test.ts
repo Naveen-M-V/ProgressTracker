@@ -148,9 +148,9 @@ async function runTests() {
 
     assert.strictEqual(aliceAlpha?.is_member, true, 'Alice should be recognized as member of Team Alpha');
     assert.strictEqual(aliceBeta?.is_member, true, 'Alice should be recognized as member of Team Beta');
-    assert.strictEqual(aliceGamma?.is_member, false, 'Alice should NOT be recognized as member of Team Gamma');
+    assert.strictEqual(aliceGamma, undefined, 'Alice should NOT see foreign Team Gamma at all');
 
-    console.log('✓ TeamService.getAllTeams correctly computes is_member for multi-team user.');
+    console.log('✓ TeamService.getAllTeams correctly scopes teams: only member teams returned, foreign teams hidden.');
 
     // Create Tasks:
     // Task 1: Assigned to Team Alpha
@@ -221,16 +221,16 @@ async function runTests() {
 
     console.log('✓ Bob sees only Team Gamma task and unassigned task. Alpha & Beta are isolated from Bob!');
 
-    // 4. Query tasks as PM (Carol)
+    // 4. Query tasks as PM (before team assignment): PM only sees unassigned tasks, foreign teams are isolated
     const pmTasks = await TaskService.getTasks({ project_id: project.id }, pmUser.user);
     const pmTaskIds = pmTasks.map((t) => t.id);
 
-    assert.strictEqual(pmTaskIds.includes(taskAlpha.id), true, 'PM must see Alpha task');
-    assert.strictEqual(pmTaskIds.includes(eventBeta.id), true, 'PM must see Beta event');
-    assert.strictEqual(pmTaskIds.includes(taskGamma.id), true, 'PM must see Gamma task');
     assert.strictEqual(pmTaskIds.includes(taskUnassigned.id), true, 'PM must see Unassigned task');
+    assert.strictEqual(pmTaskIds.includes(taskAlpha.id), false, 'PM without team must NOT see foreign Alpha task');
+    assert.strictEqual(pmTaskIds.includes(eventBeta.id), false, 'PM without team must NOT see foreign Beta event');
+    assert.strictEqual(pmTaskIds.includes(taskGamma.id), false, 'PM without team must NOT see foreign Gamma task');
 
-    console.log('✓ Project Manager has oversight across all teams within their managed project.');
+    console.log('✓ Project Manager only sees their own team tasks & unassigned tasks; foreign teams are isolated.');
 
     // 5. Query tasks as Admin
     const adminTasks = await TaskService.getTasks({ project_id: project.id }, adminUser.user);
@@ -300,6 +300,52 @@ async function runTests() {
     assert.strictEqual(createSuccessRes.status, 201, 'Alice creating task in her own team Alpha should succeed');
 
     console.log('✓ Alice successfully created a task assigned to her team (Alpha).');
+
+    // 11. Strict Project Manager Team & Member Isolation Verification
+    // Assign PM as Lead of Team Alpha
+    await TeamService.updateTeam(teamAlpha.id, { lead_id: pmUser.user.id }, adminUser.user);
+
+    // A. PM only sees their own team in getAllTeams
+    const pmTeams = await TeamService.getAllTeams(pmUser.user);
+    const pmTeamIds = pmTeams.map((t) => t.id);
+    assert.strictEqual(pmTeamIds.includes(teamAlpha.id), true, 'PM must see Team Alpha (their own team)');
+    assert.strictEqual(pmTeamIds.includes(teamGamma.id), false, 'PM must NOT see Team Gamma (foreign team)');
+    console.log('✓ PM can only see their own team (Alpha). Foreign teams are completely hidden!');
+
+    // B. Direct GET on foreign team details throws FORBIDDEN
+    let pmGammaForbidden = false;
+    try {
+      await TeamService.getTeamById(teamGamma.id, pmUser.user);
+    } catch (e: any) {
+      if (e.code === 'FORBIDDEN') pmGammaForbidden = true;
+    }
+    assert.strictEqual(pmGammaForbidden, true, 'PM accessing foreign team details must throw FORBIDDEN');
+    console.log('✓ PM direct access to foreign team details is strictly blocked (403 FORBIDDEN).');
+
+    // C. Direct GET on foreign team roster throws FORBIDDEN
+    let pmGammaMembersForbidden = false;
+    try {
+      await TeamService.getTeamMembers(teamGamma.id, pmUser.user);
+    } catch (e: any) {
+      if (e.code === 'FORBIDDEN') pmGammaMembersForbidden = true;
+    }
+    assert.strictEqual(pmGammaMembersForbidden, true, 'PM accessing foreign team roster must throw FORBIDDEN');
+    console.log('✓ PM direct access to foreign team roster is strictly blocked (403 FORBIDDEN).');
+
+    // D. PM user directory only returns members of their own team (plus PM)
+    const pmUsers = await AuthService.getAllUsers(pmUser.user);
+    const pmUserIds = pmUsers.map((u) => u.id);
+    assert.strictEqual(pmUserIds.includes(pmUser.user.id), true, 'PM must see themselves');
+    assert.strictEqual(pmUserIds.includes(aliceUser.user.id), true, 'PM must see Alice (member of their team Alpha)');
+    assert.strictEqual(pmUserIds.includes(bobUser.user.id), false, 'PM must NOT see Bob (member of foreign team Gamma)');
+    console.log('✓ PM user directory strictly isolated: only own team members (Alice) visible. Foreign members (Bob) hidden!');
+
+    // E. PM cannot see tasks assigned to foreign teams
+    const pmTasksIsolated = await TaskService.getTasks({ project_id: project.id }, pmUser.user);
+    const pmIsolatedTaskIds = pmTasksIsolated.map((t) => t.id);
+    assert.strictEqual(pmIsolatedTaskIds.includes(taskAlpha.id), true, 'PM must see Team Alpha tasks');
+    assert.strictEqual(pmIsolatedTaskIds.includes(taskGamma.id), false, 'PM must NOT see foreign Team Gamma tasks');
+    console.log('✓ PM task list strictly isolated: foreign team tasks are completely excluded!');
 
     console.log('\n=== ALL TEAM RBAC & MULTI-TEAM ISOLATION TESTS PASSED SUCCESSFULLY! ===\n');
   } catch (error) {
